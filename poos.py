@@ -136,7 +136,7 @@ def plot_poos_results(y_full, y_df, title="POOS Forecast vs Actual", last_n=200)
 # ── Test ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    API_KEY = "cd30e8d67ebd36672d4b0ebfc5069427"
+    API_KEY = ""
 
     # Load & transform a FRED series as target (y)
     # Using INDPRO (Industrial Production) as an example
