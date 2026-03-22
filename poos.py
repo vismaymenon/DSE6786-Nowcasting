@@ -52,24 +52,12 @@ def poos_validation(
     y: pd.Series | np.ndarray,
     prop_train: float = 0.9,
 ) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
-    """
-    Pseudo Out-of-Sample (POOS) expanding-window validation.
 
-    Parameters
-    ----------
-    method         : Callable  — signature: method(X, y) -> (coefficients, X, y_actual,
-                                  y_train_predicted, y_test_actual, y_test_predicted)
-    X              : feature matrix (n_samples, n_features)
-    y              : target array   (n_samples,)
-    min_train_size : if float in (0,1), treated as proportion of sample;
-                     if int >= 2, treated as absolute number of training obs.
-                     Defaults to 0.9 (90% burn-in).
-    """
-    X = pd.DataFrame(X).reset_index(drop=True)
-    y = pd.Series(y).reset_index(drop=True)
+    X = pd.DataFrame(X)  # ← remove reset_index
+    y = pd.Series(y)     # ← remove reset_index
     n = len(y)
 
-    train_size = int(prop_train * n) if isinstance(prop_train, float) else 100 # with min train size as 100
+    train_size = int(prop_train * n) if isinstance(prop_train, float) else 100
     test_indices, actuals = [], []
     preds_point, preds_50_lower, preds_50_upper, preds_80_lower, preds_80_upper = [], [], [], [], []
 
@@ -80,7 +68,7 @@ def poos_validation(
         _, y_train_actual, y_train_predicted, _, y_test_actual, y_test_predicted = method(X_window, y_window).values()
         std_error = np.std(y_train_actual - y_train_predicted)
 
-        test_indices.append(t + train_size)
+        test_indices.append(y.index[t + train_size])  # ← use datetime index
         actuals.append(float(y_test_actual))
         preds_point.append(float(y_test_predicted))
         preds_50_lower.append(float(y_test_predicted) - 0.674 * std_error)
@@ -103,7 +91,7 @@ def poos_validation(
     rmse = np.sqrt(np.mean((y_df["y_true"] - y_df["y_hat"]) ** 2))
     mae  = np.mean(np.abs(y_df["y_true"] - y_df["y_hat"]))
 
-    return X.iloc[test_indices].copy(), y_df, rmse, mae
+    return X.iloc[range(n - train_size)].copy(), y_df, rmse, mae
 
 
 # -- Plot results -----------
@@ -115,25 +103,18 @@ def plot_poos_results(y_full, y_df, title="POOS Forecast vs Actual", last_n=200)
     fig, ax = plt.subplots(figsize=(14, 5))
 
     # ── Trim full series to last n points ─────────────────────────────────────
-    y_plot = y_full.iloc[-last_n:].reset_index(drop=True)
-    offset = len(y_full) - last_n  # shift so indices align with y_df
+    y_plot = y_full.iloc[-last_n:]
+    cutoff_date = y_plot.index[0]
 
-    ax.plot(
-        range(offset, offset + len(y_plot)),
-        y_plot.values,
-        color="black",
-        linewidth=1.2,
-        label="Actual (full sample)",
-        zorder=3
-    )
+    ax.plot(y_plot.index, y_plot.values, color="black", linewidth=1.2,
+            label="Actual (full sample)", zorder=3)
 
-    # ── Filter y_df to only indices within the last_n window ─────────────────
-    idx_mask = y_df.index >= offset
-    y_df_plot = y_df[idx_mask]
+    # ── Filter y_df to only dates within the last_n window ───────────────────
+    y_df_plot = y_df[y_df.index >= cutoff_date]
     idx = y_df_plot.index
 
-    ax.plot(idx, y_df_plot["y_hat"], color="steelblue", linewidth=1.2,
-            linestyle="--", label="Predicted (OOS)", zorder=4)
+    ax.plot(idx, y_df_plot["y_hat"], color="red", linewidth=1.2,
+            label="Predicted (OOS)", zorder=4)
 
     ax.fill_between(idx, y_df_plot["pred_50_lower"], y_df_plot["pred_50_upper"],
                     alpha=0.4, color="steelblue", label="50% CI")
@@ -144,12 +125,12 @@ def plot_poos_results(y_full, y_df, title="POOS Forecast vs Actual", last_n=200)
     ax.axvline(x=idx[0], color="grey", linestyle=":", linewidth=1, label="OOS start")
 
     ax.set_title(title)
-    ax.set_xlabel("Time Index")
-    ax.set_ylabel("Value")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("GDP Growth Rate (%)")
     ax.legend(loc="upper left")
     ax.grid(True, alpha=0.3)
+    fig.autofmt_xdate()   # ← rotates date labels so they don't overlap
     plt.tight_layout()
-    plt.savefig("poos_plot.png", dpi=150, bbox_inches="tight")
     plt.show()
 
 # ── Test ──────────────────────────────────────────────────────────────────────
@@ -170,8 +151,8 @@ if __name__ == "__main__":
 
     # Align and drop NaNs
     df = pd.concat([X_df, y_series], axis=1).dropna()
-    X = df.iloc[:, :-1].reset_index(drop=True)
-    y = df.iloc[:, -1].reset_index(drop=True)
+    X = df.iloc[:, :-1]
+    y = df.iloc[:, -1]
 
     print(f"Sample size: {len(y)}")
     print(f"Features:    {X.columns.tolist()}\n")
