@@ -1,6 +1,6 @@
 # DSE6789
 ## Set-up
-### Setting up Virtual Environment (Optional)
+### Setting up Virtual Environment (Optional but Recommended)
 1. **Create the Venv**:
 Copy the code into your terminal
    1. _Windows_: `python -m venv .venv`
