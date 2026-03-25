@@ -17,13 +17,13 @@ def load_series_latest_release(series_id, api_key):
     return data
 
 def get_fred_md_metadata():
-    url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/2026-02-md.csv"
+    url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv"
     metadata_df = pd.read_csv(url, nrows=1)
     tcode_dict = metadata_df.iloc[0, 1:].to_dict()
     return tcode_dict
 
 def get_fred_qd_metadata():
-    url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/2026-02-qd.csv"
+    url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/current.csv"
     metadata_df = pd.read_csv(url, nrows=2)
     tcode_dict = metadata_df.iloc[1, 1:].to_dict()
     return tcode_dict
@@ -89,6 +89,16 @@ def load_transformed_series_latest_release(df, metadata, API_KEY):
     print(f"\nFailed series: {bad_series}")
     return pd.concat(results, axis=1)
 
+def drop_columns(df):
+    # Drop column if it contains any NaN values in the first row to create a balanced panel
+    nan_cols = df.columns[df.iloc[:1].isna().any()]
+
+    # Drop irregular "OILPRICEx" column following McCracken and Ng (2016) recommendation
+    cols_to_drop = list(nan_cols) + ["OILPRICEx"]
+    df = df.drop(columns=cols_to_drop)
+
+    return df
+
 def save_df(df, output_dir, file_name):
     save_path = os.path.join(output_dir, f"{file_name}.csv")
     df.to_csv(save_path, header=True)
@@ -107,16 +117,22 @@ def save_df(df, output_dir, file_name):
 #     API_KEY
 #     ).head())
 
-fred_md = save_df(load_transformed_series_latest_release(
-    load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/2026-02-md.csv", skiprows=[1]).bfill(),
+fred_md = save_df(load_transformed_series_latest_release(drop_columns(
+    load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv", skiprows=[1])).bfill(),
     get_fred_md_metadata(), 
     API_KEY
 ), "data", "fred_md")
 
-fred_qd = save_df(load_transformed_series_latest_release(
-    load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/2026-02-qd.csv", skiprows=[1, 2]).bfill(),
+fred_qd = save_df(load_transformed_series_latest_release(drop_columns(
+    load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/current.csv", skiprows=[1, 2])).bfill(),
     get_fred_qd_metadata(), 
     API_KEY
 ), "data", "fred_qd")
+
+#Remove target variable from FRED QD
+fred_qd_X = save_df(fred_qd.iloc[:, 1:], "data", "fred_qd_X")
+
+#Save GDP target variable separately, add an additional transformation to convert to annualized growth rate
+gdp = save_df(fred_qd.iloc[:, 0]*400, "data", "gdp")
 
 print(fred_md.head())
