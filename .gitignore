@@ -23,5 +23,8 @@ Thumbs.db
 *.xlsx
 *.parquet
 
+# Allow working files
+!working/GDPPCT.xlsx
+
 # Logs
 *.log
