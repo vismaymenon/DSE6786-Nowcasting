@@ -100,7 +100,8 @@ def drop_columns(df):
 
 def drop_empty_rows(df):
     # Drop rows where all values are NaN
-    return df.iloc[2:].dropna(how='all')
+    df = df.iloc[2:]  
+    return df[df.index.notna()]
 
 def save_df(df, output_dir, file_name):
     if "__file__" in globals():
@@ -132,20 +133,18 @@ def main():
         fred_md = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv", skiprows=[1])),
             get_fred_md_metadata()
-        )).bfill(), "../data", "fred_md")
+        )), "../data", "fred_md")
 
         fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/current.csv", skiprows=[1, 2])),
             get_fred_qd_metadata()
-        )).bfill(), "../data", "fred_qd")
+        )), "../data", "fred_qd")
 
         #Remove target variable from FRED QD
         fred_qd_X = save_df(fred_qd.iloc[:, 1:], "../data", "fred_qd_X")
 
         #Save GDP target variable separately, add an additional transformation to convert to annualized growth rate
         gdp = save_df(fred_qd.iloc[:, 0]*400, "../data", "gdp")
-        
-        print("Data loading and transformation complete.")
 
     except Exception as e:
         print(f"An error occurred during data loading and transformation: {e}")
