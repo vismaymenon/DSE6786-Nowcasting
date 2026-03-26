@@ -6,15 +6,14 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv() 
-API_KEY = os.getenv("FRED_API_KEY")
 
 
-def load_series_latest_release(series_id, api_key):  
-    fred = Fred(api_key=api_key)
-    data = fred.get_series(series_id)
-    info = fred.get_series_info(series_id)
-    data.name = info['title'] + ', ' + info['units']
-    return data
+# def load_series_latest_release(series_id, api_key):  
+#     fred = Fred(api_key=api_key)
+#     data = fred.get_series(series_id)
+#     info = fred.get_series_info(series_id)
+#     data.name = info['title'] + ', ' + info['units']
+#     return data
 
 def get_fred_md_metadata():
     url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv"
@@ -66,7 +65,7 @@ def transform_series(series, series_id, tcode_dict):
         return series
     
 
-def load_transformed_series_latest_release(df, metadata, API_KEY):
+def load_transformed_series_latest_release(df, metadata):
     results = []   # ← separate list to collect transformed series
     bad_series = []
 
@@ -101,10 +100,13 @@ def drop_columns(df):
 
 def drop_empty_rows(df):
     # Drop rows where all values are NaN
-    return df.dropna(how='all')
+    return df.iloc[2:].dropna(how='all')
 
 def save_df(df, output_dir, file_name):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if "__file__" in globals():
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    else:
+        base_dir = os.getcwd()
     resolved_dir = os.path.join(base_dir, output_dir)
     os.makedirs(resolved_dir, exist_ok=True)
     save_path = os.path.join(resolved_dir, f"{file_name}.csv")
@@ -125,24 +127,27 @@ def save_df(df, output_dir, file_name):
 #     ).head())
 
 def main():
-    fred_md = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
-        load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv", skiprows=[1])),
-        get_fred_md_metadata(), 
-        API_KEY
-    )).bfill(), "../data", "fred_md")
 
-    fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
-        load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/current.csv", skiprows=[1, 2])),
-        get_fred_qd_metadata(), 
-        API_KEY
-    )).bfill(), "../data", "fred_qd")
+    try:
+        fred_md = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv", skiprows=[1])),
+            get_fred_md_metadata()
+        )).bfill(), "../data", "fred_md")
 
-    #Remove target variable from FRED QD
-    fred_qd_X = save_df(drop_empty_rows(fred_qd.iloc[:, 1:]), "../data", "fred_qd_X")
+        fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/current.csv", skiprows=[1, 2])),
+            get_fred_qd_metadata()
+        )).bfill(), "../data", "fred_qd")
 
-    #Save GDP target variable separately, add an additional transformation to convert to annualized growth rate
-    gdp = save_df(drop_empty_rows(fred_qd.iloc[:, 0]*400), "../data", "gdp")
-    
-    print("Data loading and transformation complete.")
+        #Remove target variable from FRED QD
+        fred_qd_X = save_df(fred_qd.iloc[:, 1:], "../data", "fred_qd_X")
+
+        #Save GDP target variable separately, add an additional transformation to convert to annualized growth rate
+        gdp = save_df(fred_qd.iloc[:, 0]*400, "../data", "gdp")
+        
+        print("Data loading and transformation complete.")
+
+    except Exception as e:
+        print(f"An error occurred during data loading and transformation: {e}")
 
 if __name__ == "__main__":    main()
