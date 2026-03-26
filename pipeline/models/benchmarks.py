@@ -1,16 +1,19 @@
 import numpy as np
 import pandas as pd
 from typing import Callable
+import os
+from dotenv import load_dotenv
 
-import load_data   
-import poos
-import autoregressive
+import pipeline.load_data as load_data   
+import pipeline.poos as poos
+import pipeline.models.autoregressive as autoregressive
 
-API_KEY = ""
+load_dotenv()
+API_KEY = os.getenv("API_KEY")
 series_id = "A191RL1Q225SBEA"  # Real GDP (quarterly, seasonally adjusted, chained 2012 dollars)
 
 # -- Load data 
-y_series = load_data.load_transformed_series_latest_release(series_id, API_KEY)
+y_series = load_data.load_transformed_series_latest_release(series_id=series_id, API_KEY=API_KEY)
 
 # ── AR(2)
 

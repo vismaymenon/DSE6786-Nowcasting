@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Callable
-import load_data
+import pipeline.load_data as load_data
 
 def print_results(dict):
     for key, value in dict.items():
