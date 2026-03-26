@@ -15,22 +15,24 @@ series_id = "A191RL1Q225SBEA"  # Real GDP (quarterly, seasonally adjusted, chain
 # -- Load data 
 y_series = load_data.load_transformed_series_latest_release(series_id=series_id, API_KEY=API_KEY)
 
-# ── AR(2)
+# ── AR(p=2, h=2)
 
 X_df = pd.DataFrame({
-    "lag_1": y_series.shift(1),
-    "lag_2": y_series.shift(2)
+    "lag_1": y_series.shift(2),
+    "lag_2": y_series.shift(3),
+    "lag_3": y_series.shift(4),
+
 })
 
 df = pd.concat([X_df, y_series], axis=1).dropna()
-X_ar = df.iloc[:, :-1].reset_index(drop=True)
-y_ar = df.iloc[:,  -1].reset_index(drop=True)
+X_ar = df.iloc[:, :-1]
+y_ar = df.iloc[:,  -1]
 
 X_out, y_out, rmse, mae = poos.poos_validation(
     method=autoregressive.ar_model_nowcast,
     X=X_ar,
     y=y_ar,
-    prop_train=0.9
+    num_test=100
 )
 
 # ── 4. Results ────────────────────────────────────────────────────────────────
