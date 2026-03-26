@@ -10,15 +10,22 @@ CSV_FILES = {
     "gdp": DATA_DIR / "gdp.csv",
     "fred_md": DATA_DIR / "fred_md.csv",
     "fred_qd": DATA_DIR / "fred_qd.csv",
-    "fred_qd_X": DATA_DIR / "fred_qd_X.csv"
+    "fred_qd_x": DATA_DIR / "fred_qd_X.csv"
 }
 
-def read_csv(file_path: Path):
+def read_csv(file_path: Path) -> list[dict]:
     df = pd.read_csv(file_path, parse_dates=['sasdate'])
+    df = df.dropna(subset=["sasdate"])
     df["sasdate"] = df["sasdate"].dt.strftime("%Y-%m-%d")
-    df = df.where(pd.notnull(df), None)
 
-    return df.to_dict(orient='records')
+    row = []
+    for record in df.to_dict(orient='records'):
+        cleaned = {
+            k: (None if isinstance(v, float) and (pd.isna(v) or v == float("inf") or v == float("-inf")) else v)
+            for k, v in record.items()
+        }
+        row.append(cleaned)
+    return row
 
 def upsert_table(
         client: Client,
