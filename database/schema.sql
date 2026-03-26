@@ -616,6 +616,7 @@ CREATE TABLE IF NOT EXISTS model_forecasts (
     ci_50_ub      NUMERIC     NOT NULL,
     ci_80_lb      NUMERIC     NOT NULL,
     ci_80_ub      NUMERIC     NOT NULL,
+    rmse          NUMERIC     NOT NULL,
 
     -- Upsert key: one forecast per model per month
     -- When pipeline revises a month's estimate, this
