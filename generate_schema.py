@@ -13,7 +13,7 @@ import pandas as pd
 from pathlib import Path
 
 DATA_DIR = Path("data")
-OUTPUT_FILE = Path("supabase/schema.sql")
+OUTPUT_FILE = Path("database/schema.sql")
 
 CSV_FILES = {
     "gdp": DATA_DIR / "gdp.csv",
