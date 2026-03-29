@@ -1,43 +1,56 @@
-import numpy as np
-import pandas as pd
-from typing import Callable
-import os
-from dotenv import load_dotenv
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import pipeline.load_data as load_data   
+import pipeline.load_data as load_data
 import pipeline.poos as poos
 import pipeline.models.autoregressive as autoregressive
+import pipeline.models.rf_benchmark as rf_benchmark
 
-load_dotenv()
-API_KEY = os.getenv("API_KEY")
-series_id = "A191RL1Q225SBEA"  # Real GDP (quarterly, seasonally adjusted, chained 2012 dollars)
+AR_LAGS    = 2
+RF_LAGS    = 4
+PROP_TRAIN = 0.9
 
-# -- Load data 
-y_series = load_data.load_transformed_series_latest_release(series_id=series_id, API_KEY=API_KEY)
+def build_features(gdp, n_lags):
+    df = gdp.rename("gdp_growth").to_frame()
+    for lag in range(1, n_lags + 1):
+        df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
+    df.dropna(inplace=True)
+    X = df[[f"lag_{i}" for i in range(1, n_lags + 1)]]
+    y = df["gdp_growth"]
+    return X, y
 
-# ── AR(2)
+# ── Load data ─────────────────────────────────────────────────────────────────
+gdp = load_data.load_gdp()
 
-X_df = pd.DataFrame({
-    "lag_1": y_series.shift(1),
-    "lag_2": y_series.shift(2)
-})
-
-df = pd.concat([X_df, y_series], axis=1).dropna()
-X_ar = df.iloc[:, :-1].reset_index(drop=True)
-y_ar = df.iloc[:,  -1].reset_index(drop=True)
-
-X_out, y_out, rmse, mae = poos.poos_validation(
+# ── AR(2) POOS ────────────────────────────────────────────────────────────────
+print("\n=== Autoregressive Model AR(2) ===")
+X_ar, y_ar = build_features(gdp, AR_LAGS)
+_, ar_out, ar_rmse, ar_mae = poos.poos_validation(
     method=autoregressive.ar_model_nowcast,
     X=X_ar,
     y=y_ar,
-    prop_train=0.9
+    prop_train=PROP_TRAIN,
 )
 
-# ── 4. Results ────────────────────────────────────────────────────────────────
-print("=== POOS Results (first 10 rows) ===")
-print(y_out.head(10))
-print(f"\nRMSE : {rmse:.6f}")
-print(f"MAE  : {mae:.6f}")
-print(f"OOS observations: {len(y_out)}")
+# ── RF POOS ────────────────────────────────────────────────────────────────
+print("\n=== Random Forest Model RF ===")
+X_rf, y_rf = build_features(gdp, RF_LAGS)
+_, rf_out, rf_rmse, rf_mae = poos.poos_validation(
+    method=rf_benchmark.rf_model_nowcast,
+    X=X_rf,
+    y=y_rf,
+    prop_train=PROP_TRAIN,
+)
 
-poos.plot_poos_results(y_ar, y_out, title="Autoregressive Model POOS - AR(2)")
+# ── Results ───────────────────────────────────────────────────────────────────
+print("\n" + "=" * 45)
+print(f"{'Model':<20} {'RMSE':>10} {'MAE':>10}")
+print("─" * 45)
+print(f"{'Autoregressive':<20} {ar_rmse:>10.4f} {ar_mae:>10.4f}")
+print(f"{'Random Forest':<20} {rf_rmse:>10.4f} {rf_mae:>10.4f}")
+print("=" * 45)
+print(f"\nOOS observations: {len(ar_out)}")
+
+# ── Plots ─────────────────────────────────────────────────────────────────────
+poos.plot_poos_results(y_ar, ar_out, title="Autoregressive Model AR(2) POOS")
+poos.plot_poos_results(y_rf, rf_out, title="Random Forest Model RF POOS")
