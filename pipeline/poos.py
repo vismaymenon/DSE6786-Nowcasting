@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
 from typing import Callable
-import pipeline.load_data as load_data
+from datetime import date
+import load_data
 
-def print_results(dict):
-    for key, value in dict.items():
-        print(f"{key}: {value}")
+import os
+from dotenv import load_dotenv
 
 # ── Benchmark model ───────────────────────────────────────────────────────────
 
@@ -50,14 +50,14 @@ def poos_validation(
     method: Callable,
     X: pd.DataFrame | np.ndarray,
     y: pd.Series | np.ndarray,
-    prop_train: float = 0.9,
+    num_test: int = 100,
 ) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
 
     X = pd.DataFrame(X)  # ← remove reset_index
     y = pd.Series(y)     # ← remove reset_index
     n = len(y)
 
-    train_size = int(prop_train * n) if isinstance(prop_train, float) else 100
+    train_size = n - num_test
     test_indices, actuals = [], []
     preds_point, preds_50_lower, preds_50_upper, preds_80_lower, preds_80_upper = [], [], [], [], []
 
@@ -94,7 +94,7 @@ def poos_validation(
     return X.iloc[range(n - train_size)].copy(), y_df, rmse, mae
 
 
-# -- Plot results -----------
+# Plot results 
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -102,7 +102,7 @@ import matplotlib.patches as mpatches
 def plot_poos_results(y_full, y_df, title="POOS Forecast vs Actual", last_n=200):
     fig, ax = plt.subplots(figsize=(14, 5))
 
-    # ── Trim full series to last n points ─────────────────────────────────────
+    # Trim full series to last n points 
     y_plot = y_full.iloc[-last_n:]
     cutoff_date = y_plot.index[0]
 
@@ -136,7 +136,8 @@ def plot_poos_results(y_full, y_df, title="POOS Forecast vs Actual", last_n=200)
 # ── Test ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    API_KEY = ""
+    load_dotenv() 
+    API_KEY = os.getenv("API_KEY")
 
     # Load & transform a FRED series as target (y)
     # Using INDPRO (Industrial Production) as an example
@@ -162,7 +163,7 @@ if __name__ == "__main__":
         method=placeholder_model,
         X=X,
         y=y,
-        prop_train=0.9,
+        num_test=100,
     )
 
     plot_poos_results(y, y_out, title="INDPRO — Benchmark Model POOS")
