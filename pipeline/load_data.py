@@ -131,12 +131,12 @@ def main():
 
     try:
         fred_md = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
-            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv", skiprows=[1])),
+            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/2026-02-md.csv", skiprows=[1])),
             get_fred_md_metadata()
         )), "../data", "fred_md")
 
         fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
-            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/current.csv", skiprows=[1, 2])),
+            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/2026-02-qd.csv", skiprows=[1, 2])),
             get_fred_qd_metadata()
         )), "../data", "fred_qd")
 
