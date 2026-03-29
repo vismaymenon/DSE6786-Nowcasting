@@ -101,7 +101,8 @@ def drop_columns(df):
 
 def drop_empty_rows(df):
     # Drop rows where all values are NaN
-    return df.dropna(how='all')
+        df = df.iloc[2:]  
+        return df[df.index.notna()]
 
 def save_df(df, output_dir, file_name):
     base_dir = os.path.dirname(os.path.abspath(__file__))
