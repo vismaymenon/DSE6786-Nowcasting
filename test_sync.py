@@ -25,4 +25,5 @@ Create empty files at:
 They can be completely empty — their presence is all that matters.
 
 Once those are in place, run:
+    python test_sync.py
 '''

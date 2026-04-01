@@ -1,0 +1,81 @@
+import os
+import sys
+import pandas as pd
+import numpy as np
+from xgboost import XGBRegressor
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.append(SCRIPT_DIR)
+
+from poos import poos_validation, plot_poos_results
+
+
+def xgb_poos_method(X_window, y_window):
+    X_train_w = X_window.iloc[:-1]
+    y_train_w = y_window.iloc[:-1]
+    X_test_w = X_window.iloc[[-1]]
+    y_test_w = float(y_window.iloc[-1])
+
+    m = XGBRegressor(objective='reg:squarederror', random_state=42)
+    m.fit(X_train_w, y_train_w)
+
+    y_train_pred_w = m.predict(X_train_w)
+    y_test_pred_w = float(m.predict(X_test_w)[0])
+
+    return {
+        'X_train': X_train_w,
+        'y_train': y_train_w.values,
+        'y_train_predicted': y_train_pred_w,
+        'X_test': X_test_w,
+        'y_test_actual': y_test_w,
+        'y_test_predicted': y_test_pred_w,
+    }
+
+
+def main():
+    data_dir = os.path.join(SCRIPT_DIR, 'data')
+    x_path = os.path.join(data_dir, 'fred_qd_X.csv')
+    y_path = os.path.join(data_dir, 'fred_qd_Y.csv')
+
+    X = pd.read_csv(x_path, parse_dates=['sasdate']).set_index('sasdate')
+    y = pd.read_csv(y_path, parse_dates=['sasdate']).set_index('sasdate')
+
+    df = X.join(y, how='inner').dropna()
+    y_col = 'GDPC1_t'
+    X_aligned = df.drop(columns=[y_col])
+    y_aligned = df[y_col]
+
+    n_test = 100
+    n = len(y_aligned)
+    if n_test >= n:
+        raise ValueError('Not enough data points for 100-point test split')
+
+    X_train = X_aligned.iloc[: n - n_test]
+    X_test = X_aligned.iloc[n - n_test :]
+    y_train = y_aligned.iloc[: n - n_test]
+    y_test = y_aligned.iloc[n - n_test :]
+
+    model = XGBRegressor(objective='reg:squarederror', random_state=42)
+    model.fit(X_train, y_train)
+
+    y_test_pred = model.predict(X_test)
+    rmse_test = np.sqrt(np.mean((y_test - y_test_pred) ** 2))
+    mae_test = np.mean(np.abs(y_test - y_test_pred))
+    print(f'Hold-out test RMSE={rmse_test:.6f}, MAE={mae_test:.6f}')
+
+    _, y_oos, rmse_poos, mae_poos = poos_validation(
+        method=xgb_poos_method,
+        X=X_aligned,
+        y=y_aligned,
+        num_test=n_test,
+    )
+
+    print('POOS results (last 5):')
+    print(y_oos.tail(5))
+    print(f'POOS RMSE={rmse_poos:.6f}, MAE={mae_poos:.6f}')
+
+    try:
+        plot_poos_results(y_aligned, y_oos, title='XGBoost POOS on fred_qd_X -> GDP')
+    except Exception as e:
+        print('Plot failed:', e)
