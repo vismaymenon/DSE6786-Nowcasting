@@ -127,18 +127,26 @@ def save_df(df, output_dir, file_name):
 #     API_KEY
 #     ).head())
 
+def add_covid_flags(df):
+    # add a flag column for those two quarters to indicate covid outliers
+    df['covid_crash'] = 0
+    df['covid_recover'] = 0
+    df.loc['2020-04':'2020-06', 'covid_crash'] = 1
+    df.loc['2020-07':'2020-09', 'covid_recover'] = 1
+    return df
+
 def main():
 
     try:
-        fred_md = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+        fred_md = save_df(add_covid_flags(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/2026-02-md.csv", skiprows=[1])),
             get_fred_md_metadata()
-        )), "../data", "fred_md")
+        ))), "../data", "fred_md")
 
-        fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+        fred_qd = save_df(add_covid_flags(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/2026-02-qd.csv", skiprows=[1, 2])),
             get_fred_qd_metadata()
-        )), "../data", "fred_qd")
+        ))), "../data", "fred_qd")
 
         #Remove target variable from FRED QD
         fred_qd_X = save_df(fred_qd.iloc[:, 1:], "../data", "fred_qd_X")
