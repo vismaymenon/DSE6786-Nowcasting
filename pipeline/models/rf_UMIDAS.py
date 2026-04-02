@@ -5,17 +5,10 @@ Final Random Forest nowcasting model for GDP growth.
 
 Pipeline
 --------
-  Step 1 — Lag selection
-            Execute ragged_edge_working.ipynb via nbconvert.
-            The notebook selects the optimal AR(p) per variable (BIC criterion)
-            for fred_md and fred_qd_X, then writes the results to bic_lags.csv
-            in this directory (pipeline/models/).
-
-  Step 2 — Ragged-edge imputation
-            Call fill_ragged_edge() from pipeline/ragged_edge.py.
-            For each variable that has trailing NaNs (unreleased recent
-            observations), it fits an AR(p) model on the observed history
-            and forecasts those missing values one step ahead.
+  Step 1 — Load filled data
+            Fetch ragged-edge-imputed data from Supabase (filled_md, filled_qd).
+            Run test.py beforehand to populate these tables from the latest
+            FRED release.
 
   Step 3 — U-MIDAS feature engineering
             Each monthly variable becomes 3 quarterly features (_m1, _m2, _m3)
@@ -38,7 +31,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import sys
-import subprocess
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -64,145 +56,41 @@ PIPELINE_DIR = THIS_DIR.parent                   # pipeline/
 PROJECT_DIR  = PIPELINE_DIR.parent               # project root
 DATA_DIR     = PROJECT_DIR / "data"
 
-NOTEBOOK_PATH = THIS_DIR / "ragged_edge_working.ipynb"
-BIC_LAGS_PATH = THIS_DIR / "bic_lags.csv"
-
-# Allow importing from pipeline/
+# Allow importing from pipeline/ and project root
 sys.path.insert(0, str(PIPELINE_DIR))
-from ragged_edge import fill_ragged_edge
+sys.path.insert(0, str(PROJECT_DIR))
+from ragged_edge import read_table
+from database.client import get_backend_client
 
 
 # =============================================================================
-# STEP 1 — Execute notebook to get optimal AR lags → bic_lags.csv
+# STEP 1 — Load ragged-edge-filled data from Supabase
 # =============================================================================
 
-def run_lag_selection_notebook():
+def load_filled_data():
     """
-    Run ragged_edge_working.ipynb in-place using nbconvert.
+    Fetch ragged-edge-imputed data from Supabase tables filled_md and filled_qd.
 
-    The notebook:
-      1. Reads fred_md.csv and fred_qd_X.csv (filtered to 1959–2019 for stability)
-      2. Selects the optimal AR lag p for each variable by minimising BIC
-      3. Saves the results as bic_lags.csv in the same directory (pipeline/models/)
-
-    We run it with cwd=THIS_DIR so that relative paths inside the notebook
-    (e.g. pd.read_csv("../../data/fred_md.csv")) resolve correctly.
-    """
-    print("Step 1 — Running ragged_edge_working.ipynb to select optimal AR lags …")
-
-    result = subprocess.run(
-        [
-            "jupyter", "nbconvert",
-            "--to", "notebook",
-            "--execute",
-            "--ExecutePreprocessor.timeout=600",   # 10-min timeout (lag selection is slow)
-            "--output", str(NOTEBOOK_PATH),         # overwrite the notebook with output
-            str(NOTEBOOK_PATH),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(THIS_DIR),   # run from notebook's directory so its relative paths work
-    )
-
-    if result.returncode != 0:
-        print("nbconvert stderr:\n", result.stderr)
-        raise RuntimeError(
-            "Notebook execution failed. Make sure 'jupyter' is installed and "
-            "the notebook kernel is available."
-        )
-
-    if not BIC_LAGS_PATH.exists():
-        raise FileNotFoundError(
-            f"{BIC_LAGS_PATH} was not found after notebook execution. "
-            "Check that the notebook's last cell writes bic_lags.csv."
-        )
-
-    lag_df = pd.read_csv(BIC_LAGS_PATH)
-    print(f"  Optimal lags selected for {len(lag_df)} variables.")
-    print(f"  Saved to {BIC_LAGS_PATH}\n")
-
-
-# =============================================================================
-# STEP 2 — Ragged-edge imputation using pipeline/ragged_edge.py
-# =============================================================================
-
-def run_imputation():
-    """
-    Call fill_ragged_edge() for fred_md and fred_qd_X.
-
-    fill_ragged_edge() (defined in pipeline/ragged_edge.py):
-      - Reads a data CSV and a lag CSV (bic_lags.csv)
-      - For each variable that has trailing NaNs, fits an AR(p) model on its
-        observed history and fills the missing values by one-step-ahead forecasting
-      - Returns the filled DataFrame
-
-    Quarterly data pre-processing note:
-        fred_qd_X.csv has 2 rows with NaN dates — these are empty placeholder
-        rows for future quarters that haven't started yet.  We drop them before
-        imputation so fill_ragged_edge() doesn't treat them as real observations
-        and forecast 2 phantom extra quarters.
-
-    Returns
-    -------
-    df_md_filled  : pd.DataFrame — monthly FRED-MD with ragged edge filled
-    df_qd_filled  : pd.DataFrame — quarterly FRED-QD-X with ragged edge filled
-    """
-    print("Step 2 — Ragged-edge imputation …\n")
-
-    # ── Monthly (fred_md) ─────────────────────────────────────────────────────
-    # fred_md has no NaN-date rows, so we pass it directly.
-    print("  Imputing fred_md …")
-    df_md_filled = fill_ragged_edge(
-        data_csv=str(DATA_DIR / "fred_md.csv"),
-        lag_csv=str(BIC_LAGS_PATH),
-    )
-    md_nans_remaining = df_md_filled.drop(columns=["sasdate"]).isna().sum().sum()
-    print(f"  Done. {md_nans_remaining} NaNs remaining in fred_md.\n")
-
-    # ── Quarterly (fred_qd_X) ─────────────────────────────────────────────────
-    # Drop the 2 NaN-date placeholder rows before imputing.
-    print("  Imputing fred_qd_X …")
-    df_qd_raw = pd.read_csv(DATA_DIR / "fred_qd_X.csv", parse_dates=["sasdate"])
-    df_qd_raw = df_qd_raw.dropna(subset=["sasdate"]).reset_index(drop=True)
-
-    # Write to a temporary CSV so fill_ragged_edge() can read it by path
-    _tmp_qd = THIS_DIR / "_tmp_fred_qd.csv"
-    df_qd_raw.to_csv(_tmp_qd, index=False)
-
-    df_qd_filled = fill_ragged_edge(
-        data_csv=str(_tmp_qd),
-        lag_csv=str(BIC_LAGS_PATH),
-    )
-    _tmp_qd.unlink()   # clean up temp file
-
-    qd_nans_remaining = df_qd_filled.drop(columns=["sasdate"]).isna().sum().sum()
-    print(f"  Done. {qd_nans_remaining} NaNs remaining in fred_qd_X.\n")
-
-    return df_md_filled, df_qd_filled
-
-
-# =============================================================================
-# MAIN ENTRY POINT FOR STEPS 1–2
-# =============================================================================
-
-def load_and_impute():
-    """
-    Run Steps 1–2 end-to-end.
+    These tables are populated by running test.py, which calls fill_ragged_edge()
+    on the latest FRED release and upserts the results.
 
     Returns
     -------
     df_md_filled : pd.DataFrame — monthly FRED-MD, ragged edge imputed
     df_qd_filled : pd.DataFrame — quarterly FRED-QD-X, ragged edge imputed
     """
-    run_lag_selection_notebook()
-    df_md_filled, df_qd_filled = run_imputation()
+    print("Step 1 — Loading filled data from Supabase …")
+    supabase = get_backend_client()
 
-    # ── Quick sanity check: show the last 3 rows of each dataset ──────────────
-    print("fred_md tail (first 3 feature columns):")
-    print(df_md_filled.tail(3)[["sasdate"] + list(df_md_filled.columns[1:4])].to_string())
-    print()
-    print("fred_qd_X tail (first 3 feature columns):")
-    print(df_qd_filled.tail(3)[["sasdate"] + list(df_qd_filled.columns[1:4])].to_string())
+    df_md_filled = read_table(supabase, "filled_md")
+    df_md_filled["sasdate"] = pd.to_datetime(df_md_filled["sasdate"])
+    df_md_filled = df_md_filled.sort_values("sasdate").reset_index(drop=True)
+    print(f"  filled_md : {df_md_filled.shape}")
+
+    df_qd_filled = read_table(supabase, "filled_qd")
+    df_qd_filled["sasdate"] = pd.to_datetime(df_qd_filled["sasdate"])
+    df_qd_filled = df_qd_filled.sort_values("sasdate").reset_index(drop=True)
+    print(f"  filled_qd : {df_qd_filled.shape}\n")
 
     return df_md_filled, df_qd_filled
 
@@ -237,6 +125,11 @@ def build_umidas_features(df_md_filled: pd.DataFrame) -> pd.DataFrame:
     df["month_pos"] = df.groupby("qtr_label").cumcount() + 1
 
     feature_cols = [c for c in df.columns if c not in ("sasdate", "qtr_label", "month_pos")]
+    
+    # Drop COVID flag columns before U-MIDAS (they're kept as quarterly features)
+    feature_cols = [c for c in df.columns 
+                if c not in ("sasdate", "qtr_label", "month_pos",
+                             "covid_crash", "covid_recover")]
 
     # Pivot to wide format: rows = quarters, columns = (variable, month_pos)
     df_pivot = df.pivot(index="qtr_label", columns="month_pos", values=feature_cols)
@@ -399,23 +292,48 @@ def fit_final_model(X_trainval: pd.DataFrame, y_trainval: pd.Series, best_mf) ->
 
 
 # =============================================================================
-# STEP 5 — EVALUATION + FEATURE IMPORTANCE
+# STEP 5 — POOS-COMPATIBLE MODEL WRAPPER
 # =============================================================================
 
-def evaluate(rf: RandomForestRegressor, X_test, y_test, y_trainval) -> dict:
-    """Report OOB RMSE (train+val sanity check) and held-out test RMSE / MAE."""
-    oob_rmse  = np.sqrt(mean_squared_error(y_trainval.values, rf.oob_prediction_))
-    y_pred    = rf.predict(X_test.values)
-    test_rmse = np.sqrt(mean_squared_error(y_test.values, y_pred))
-    test_mae  = mean_absolute_error(y_test.values, y_pred)
+def rf_umidas_nowcast(X: pd.DataFrame, y: pd.Series) -> dict:
+    """
+    POOS-compatible wrapper for the RF U-MIDAS model.
 
-    print("\n" + "─" * 52)
-    print(f"{'OOB RMSE  (train+val sanity check)':42s}: {oob_rmse:.4f}")
-    print(f"{'Test RMSE (held-out 100 quarters)':42s}: {test_rmse:.4f}")
-    print(f"{'Test MAE  (held-out 100 quarters)':42s}: {test_mae:.4f}")
-    print("─" * 52)
+    Follows the contract expected by poos.poos_validation():
+      - Last row of X / last element of y is the test observation.
+      - All preceding rows are used for training.
+      - Returns a dict with keys: X_train, y_train, y_train_predicted,
+        X_test, y_test_actual, y_test_predicted.
 
-    return {"y_pred": y_pred, "test_rmse": test_rmse, "test_mae": test_mae, "oob_rmse": oob_rmse}
+    Uses fixed max_features="sqrt" (best CV choice) and N_TREES_CV trees
+    to keep POOS runtime practical — CV tuning is not repeated per window.
+    """
+    X_train = X.iloc[:-1]
+    y_train = y.iloc[:-1]
+    X_test  = X.iloc[[-1]]
+    y_test_actual = float(y.iloc[-1])
+
+    rf = RandomForestRegressor(
+        n_estimators=N_TREES_CV,
+        max_features="sqrt",
+        max_depth=None,
+        min_samples_leaf=1,
+        n_jobs=-1,
+        random_state=RANDOM_STATE,
+    )
+    rf.fit(X_train.values, y_train.values)
+
+    y_train_predicted = rf.predict(X_train.values)
+    y_test_predicted  = float(rf.predict(X_test.values)[0])
+
+    return {
+        "X_train":           X_train,
+        "y_train":           y_train.values,
+        "y_train_predicted": y_train_predicted,
+        "X_test":            X_test,
+        "y_test_actual":     y_test_actual,
+        "y_test_predicted":  y_test_predicted,
+    }
 
 
 def print_feature_importance(rf: RandomForestRegressor, feature_names, top_n: int = TOP_N_FEATURES):
@@ -451,9 +369,9 @@ def print_feature_importance(rf: RandomForestRegressor, feature_names, top_n: in
 if __name__ == "__main__":
     # ── Steps 1–2: lag selection + ragged-edge imputation ────────────────────
     print("=" * 55)
-    print("Steps 1–2: Lag selection + Ragged-edge imputation")
+    print("Step 1: Load filled data from Supabase")
     print("=" * 55)
-    df_md_filled, df_qd_filled = load_and_impute()
+    df_md_filled, df_qd_filled = load_filled_data()
 
     # ── Step 3: U-MIDAS feature engineering ──────────────────────────────────
     print("=" * 55)
@@ -469,9 +387,8 @@ if __name__ == "__main__":
     best_mf  = tune_max_features(X_trainval, y_trainval)
     rf_final = fit_final_model(X_trainval, y_trainval, best_mf)
 
-    # ── Step 5: Evaluate + feature importance ─────────────────────────────────
+    # ── Step 5: Feature importance (evaluation via evaluation.py) ────────────
     print("=" * 55)
-    print("Step 5: Evaluation + Feature importance")
+    print("Step 5: Feature importance")
     print("=" * 55)
-    results = evaluate(rf_final, X_test, y_test, y_trainval)
     print_feature_importance(rf_final, X.columns)
