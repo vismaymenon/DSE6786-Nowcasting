@@ -9,6 +9,7 @@ import pipeline.models.autoregressive as autoregressive
 import pipeline.models.rf_benchmark as rf_benchmark
 import pipeline.models.rf_UMIDAS as rf_umidas_module
 import pipeline.models.rf_avg as rf_avg_module
+import pipeline.models.lasso as lasso_module
 
 import pandas as pd
 from pathlib import Path
@@ -65,6 +66,18 @@ _, umidas_out, umidas_rmse, umidas_mae = poos.poos_validation(
     num_test=NUM_TEST,
 )
 
+# ── RF LASSO POOS ───────────────────────────────────────────────────────────
+print("\n=== LASSO ===")
+df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
+X_lasso, y_lasso = lasso_module.monthly_to_quarterly(df_md_filled)
+_, lasso_out, lasso_rmse, lasso_mae = poos.poos_validation(
+    method=lasso_module.fit_lasso,
+    X=X_lasso,
+    y=y_lasso,
+    num_test=NUM_TEST,
+)
+
+
 # ── RF Average POOS ───────────────────────────────────────────────────────────
 print("\n=== RF Average (monthly mean aggregation) ===")
 X_avg, y_avg = rf_avg_module.build_feature_matrix(df_md_filled, df_qd_filled)
@@ -83,12 +96,13 @@ print(f"{'Autoregressive AR(2)':<25} {ar_rmse:>8.4f} {ar_mae:>8.4f}")
 print(f"{'RF Benchmark':<25} {rf_rmse:>8.4f} {rf_mae:>8.4f}")
 print(f"{'RF Average':<25} {avg_rmse:>8.4f} {avg_mae:>8.4f}")
 print(f"{'RF U-MIDAS':<25} {umidas_rmse:>8.4f} {umidas_mae:>8.4f}")
+print(f"{'LASSO':<25} {lasso_rmse:>8.4f} {lasso_mae:>8.4f}")
 print("=" * 55)
 print(f"\nOOS observations: {NUM_TEST}")
 
 # ── Confidence intervals (last row of each POOS output) ───────────────────────
 print("\n=== 50% and 80% CI — last OOS observation ===")
-for name, out in [("AR(2)", ar_out), ("RF Benchmark", rf_out), ("RF Average", avg_out), ("RF U-MIDAS", umidas_out)]:
+for name, out in [("AR(2)", ar_out), ("RF Benchmark", rf_out), ("RF Average", avg_out), ("RF U-MIDAS", umidas_out), ("LASSO", lasso_out)]:
     row = out.iloc[-1]
     print(f"\n{name}")
     print(f"  Actual       : {row['y_true']:.4f}")
@@ -101,3 +115,4 @@ poos.plot_poos_results(y_ar,     ar_out,     title="Autoregressive AR(2) — POO
 poos.plot_poos_results(y_rf,     rf_out,     title="RF Benchmark — POOS")
 poos.plot_poos_results(y_avg,    avg_out,    title="RF Average — POOS")
 poos.plot_poos_results(y_umidas, umidas_out, title="RF U-MIDAS — POOS")
+poos.plot_poos_results(y_umidas, lasso_out,  title="LASSO — POOS")
