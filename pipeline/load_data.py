@@ -139,7 +139,7 @@ def main():
         fred_qd_X = save_df(fred_qd.iloc[:, 1:], "../data", "fred_qd_X")
 
         #Save GDP target variable separately, add an additional transformation to convert to annualized growth rate
-        gdp = save_df(add_covid_flags(fred_qd.iloc[:, [0]]*400), "../data", "gdp")  
+        gdp = save_df(fred_qd.iloc[:, [0]]*400, "../data", "gdp")  
         
     except Exception as e:
         print(f"An error occurred during data loading and transformation: {e}")
