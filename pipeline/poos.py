@@ -2,8 +2,6 @@ import numpy as np
 import pandas as pd
 from typing import Callable
 from datetime import date
-import load_data
-
 import os
 from dotenv import load_dotenv
 
