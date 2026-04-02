@@ -2,10 +2,49 @@ import hdmpy as hd
 import numpy as np
 import pandas as pd
 
-## Pull filled ragged edge data into file
+import sys, os
+# Add the project root to the path for relative imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
+from dotenv import load_dotenv
+load_dotenv()
+
+from pipeline import poos
+from pipeline import models
+from pipeline.models import autoregressive
+from pipeline.models import rf_benchmark
+from pipeline.models import rf_UMIDAS as rf_umidas_module
+from pipeline.models import rf_avg as rf_avg_module
+
+import pandas as pd
+from pathlib import Path
+
+NUM_TEST   = 100
+AR_LAGS    = 2
+RF_LAGS    = 4
+
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
+def build_lag_features(gdp, n_lags):
+    df = gdp.rename("gdp_growth").to_frame()
+    for lag in range(1, n_lags + 1):
+        df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
+    df.dropna(inplace=True)
+    X = df[[f"lag_{i}" for i in range(1, n_lags + 1)]]
+    y = df["gdp_growth"]
+    return X, y
+
+
+# ── Load data ─────────────────────────────────────────────────────────────────
+gdp = pd.read_csv(DATA_DIR / "gdp.csv", parse_dates=["sasdate"])
+gdp = gdp.set_index("sasdate").sort_index().squeeze()
+gdp = gdp[gdp.index.notna()]
+
+## Pull filled ragged edge data into file
 def monthly_to_quarterly(df):
-    df_resampled = df.resample('Q').mean()
+    df_resampled = df.resample('Q', on='sasdate').mean()
     df_resampled.index = df_resampled.index.to_period('M').to_timestamp()
     return df_resampled
 
@@ -48,3 +87,17 @@ def fit_lasso(df_X, gdp):
 #         indices.append(gdp.index[t])
 #         results = pd.DataFrame({ "actual": actuals, "forecast": forecasts, }, index=indices)
 #     return results
+
+
+## TEST ##
+# ── RF LASSO POOS ───────────────────────────────────────────────────────────
+print("\n=== LASSO ===")
+df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
+X_lasso= monthly_to_quarterly(df_md_filled)
+y_lasso = gdp
+_, lasso_out, lasso_rmse, lasso_mae = poos.poos_validation(
+    method= fit_lasso,
+    X=X_lasso,
+    y=y_lasso,
+    num_test=NUM_TEST,
+)
