@@ -51,22 +51,31 @@ def poos_validation(
     num_test: int = 100,
 ) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
 
-    X = pd.DataFrame(X)  # ← remove reset_index
-    y = pd.Series(y)     # ← remove reset_index
+    X = pd.DataFrame(X)
+    y = pd.Series(y)
     n = len(y)
 
-    train_size = n - num_test
+    # Identify how many trailing rows in y are NA (the nowcast targets)
+    na_mask = y.isna()
+    num_nowcast = int(na_mask.sum())
+
+    # POOS only runs on the non-NA portion
+    y_known = y[~na_mask]
+    X_known = X.loc[y_known.index]
+    n_known = len(y_known)
+
+    train_size = n_known - num_test
     test_indices, actuals = [], []
     preds_point, preds_50_lower, preds_50_upper, preds_80_lower, preds_80_upper = [], [], [], [], []
 
-    for t in range(n - train_size):
-        X_window = X.iloc[t:t+train_size+1]
-        y_window = y.iloc[t:t+train_size+1]
+    for t in range(n_known - train_size):
+        X_window = X_known.iloc[t:t+train_size+1]
+        y_window = y_known.iloc[t:t+train_size+1]
 
         _, y_train_actual, y_train_predicted, _, y_test_actual, y_test_predicted = method(X_window, y_window).values()
         std_error = np.std(y_train_actual - y_train_predicted)
 
-        test_indices.append(y.index[t + train_size])  # ← use datetime index
+        test_indices.append(y_known.index[t + train_size])
         actuals.append(float(y_test_actual))
         preds_point.append(float(y_test_predicted))
         preds_50_lower.append(float(y_test_predicted) - 0.674 * std_error)
@@ -89,7 +98,40 @@ def poos_validation(
     rmse = np.sqrt(np.mean((y_df["y_true"] - y_df["y_hat"]) ** 2))
     mae  = np.mean(np.abs(y_df["y_true"] - y_df["y_hat"]))
 
-    return X.iloc[range(n - train_size)].copy(), y_df, rmse, mae
+    # Nowcast the NA rows using the same train_size window
+    nowcast_rows = []
+    if num_nowcast > 0:
+        for i in range(num_nowcast):
+            nowcast_idx = y[na_mask].index[i]
+            t_nowcast = n_known + i
+
+            # Slide window forward to keep same train_size
+            window_start = t_nowcast - train_size
+            X_nowcast = X.iloc[window_start : t_nowcast + 1]
+            y_window_known = y_known.iloc[window_start:]
+
+            # Pad NA row(s) with mean as dummy target
+            dummy_indices = y[na_mask].index[:i+1]
+            dummy_values = pd.Series([y_known.mean()] * (i + 1), index=dummy_indices)
+            y_nowcast = pd.concat([y_window_known, dummy_values])
+
+            _, y_train_actual, y_train_predicted, _, _, y_nowcast_predicted = method(X_nowcast, y_nowcast).values()
+            std_error = np.std(y_train_actual - y_train_predicted)
+
+            nowcast_rows.append({
+                "index": nowcast_idx,
+                "y_true": np.nan,
+                "y_hat": float(y_nowcast_predicted),
+                "pred_50_lower": float(y_nowcast_predicted) - 0.674 * std_error,
+                "pred_50_upper": float(y_nowcast_predicted) + 0.674 * std_error,
+                "pred_80_lower": float(y_nowcast_predicted) - 1.282 * std_error,
+                "pred_80_upper": float(y_nowcast_predicted) + 1.282 * std_error,
+            })
+
+        nowcast_df = pd.DataFrame(nowcast_rows).set_index("index")
+        y_df = pd.concat([y_df, nowcast_df])
+
+    return X_known.iloc[range(n_known - train_size)].copy(), y_df, rmse, mae
 
 
 # Plot results 

@@ -49,8 +49,13 @@ def extend_time_index(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataFram
     else:
         raise ValueError("freq must be 'M' or 'Q'")
 
+    target_date = pd.Timestamp.today()
+    last_day_of_month = target_date + pd.offsets.MonthEnd(0)
+    if target_date != last_day_of_month:
+        target_date = target_date - pd.offsets.MonthEnd(1)
+
     target_date = (
-        pd.Timestamp.today()
+        target_date
         .to_period("Q")
         .to_timestamp(how="end")
         .to_period("M")
