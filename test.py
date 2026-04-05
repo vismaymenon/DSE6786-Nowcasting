@@ -1,7 +1,7 @@
 # run_pipeline.py
 from database.client import get_backend_client
 from pipeline.ragged_edge import fill_ragged_edge, upsert_table
-from pipeline.fred_loader import sync_csv_to_supabase
+from pipeline.fred_loader import sync_csv_to_supabase, fill_missing_gdp_quarters
 from pipeline.load_data import load_main
 import pandas as pd
 
@@ -16,7 +16,7 @@ def run():
     df_filled_qd = fill_ragged_edge(supabase, "fred_qd_x", freq="Q")
     df_filled_qd["sasdate"] = df_filled_qd["sasdate"].dt.strftime("%Y-%m-%d")
     upsert_table(supabase, "filled_qd", df_filled_qd)
-
+    fill_missing_gdp_quarters(supabase)
 
 if __name__ == "__main__":
     run()
