@@ -65,8 +65,12 @@ def load_filled_data():
 
 
 def _load_gdp():
-    gdp = pd.read_csv(DATA_DIR / "gdp.csv", parse_dates=["sasdate"])
-    gdp = gdp.set_index("sasdate").sort_index()
+    """Fetch gdp from Supabase."""
+    print("Loading gdp from Supabase …")
+    supabase = get_backend_client()
+
+    df_gdp = read_table(supabase, "gdp")
+    gdp = df_gdp.set_index("sasdate").sort_index()
     gdp = gdp[gdp.index.notna()]   # drop trailing NaT rows in gdp.csv
     return gdp
 
@@ -150,12 +154,13 @@ def _finalise(X: pd.DataFrame, gdp: pd.DataFrame) -> tuple:
     use only rows where y.notna() for evaluation, and use the last row of X
     separately for the actual nowcast prediction.
     """
-    y = gdp["GDPC1_t"].reindex(X.index)
-    last_y_date = gdp["GDPC1_t"].last_valid_index()
-    valid = X.notna().all(axis=1) & (y.notna() | (X.index > last_y_date))
+    X = X.reindex(gdp.index)
+    y = gdp["GDPC1_t"]
+    valid = X.notna().all(axis=1) 
     if (~valid).sum() > 0:
         print(f"  Dropping {(~valid).sum()} rows with NaNs.")
     return X[valid], y[valid]
+
 
 
 # =============================================================================
@@ -264,3 +269,4 @@ if __name__ == "__main__":
         print(f"\n--- {name} : {X.shape} ---")
         print("y:")
         print(y.head().to_string())
+        print(y.tail().to_string())
