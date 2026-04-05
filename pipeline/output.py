@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import pipeline.poos as poos
-import pipeline.models.autoregressive as autoregressive
+import pipeline.models.AR_benchmark as AR_benchmark
 import pipeline.models.rf_benchmark as rf_benchmark
 import pipeline.models.rf_UMIDAS as rf_umidas_module
 import pipeline.models.rf_avg as rf_avg_module
@@ -54,7 +54,7 @@ def run_models():
     print("\n=== Autoregressive Model AR(2) ===")
     X_ar, y_ar = build_lag_features(gdp, AR_LAGS)
     _, ar_out, ar_rmse, ar_mae = poos.poos_validation(
-        method=autoregressive.ar_model_nowcast,
+        method=AR_benchmark.ar_model_nowcast,
         X=X_ar,
         y=y_ar,
         num_test=NUM_TEST,

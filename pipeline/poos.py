@@ -55,12 +55,8 @@ def poos_validation(
     y = pd.Series(y)
     n = len(y)
 
-    # Identify how many trailing rows in y are NA (the nowcast targets)
-    na_mask = y.isna()
-    num_nowcast = int(na_mask.sum())
-
-    # POOS only runs on the non-NA portion
-    y_known = y[~na_mask]
+    # POOS only runs on rows where y is known (exclude nowcast rows where y=NaN)
+    y_known = y[y.notna()]
     X_known = X.loc[y_known.index]
     n_known = len(y_known)
 
@@ -97,39 +93,6 @@ def poos_validation(
 
     rmse = np.sqrt(np.mean((y_df["y_true"] - y_df["y_hat"]) ** 2))
     mae  = np.mean(np.abs(y_df["y_true"] - y_df["y_hat"]))
-
-    # Nowcast the NA rows using the same train_size window
-    nowcast_rows = []
-    if num_nowcast > 0:
-        for i in range(num_nowcast):
-            nowcast_idx = y[na_mask].index[i]
-            t_nowcast = n_known + i
-
-            # Slide window forward to keep same train_size
-            window_start = t_nowcast - train_size
-            X_nowcast = X.iloc[window_start : t_nowcast + 1]
-            y_window_known = y_known.iloc[window_start:]
-
-            # Pad NA row(s) with mean as dummy target
-            dummy_indices = y[na_mask].index[:i+1]
-            dummy_values = pd.Series([y_known.mean()] * (i + 1), index=dummy_indices)
-            y_nowcast = pd.concat([y_window_known, dummy_values])
-
-            _, y_train_actual, y_train_predicted, _, _, y_nowcast_predicted = method(X_nowcast, y_nowcast).values()
-            std_error = np.std(y_train_actual - y_train_predicted)
-
-            nowcast_rows.append({
-                "index": nowcast_idx,
-                "y_true": np.nan,
-                "y_hat": float(y_nowcast_predicted),
-                "pred_50_lower": float(y_nowcast_predicted) - 0.674 * std_error,
-                "pred_50_upper": float(y_nowcast_predicted) + 0.674 * std_error,
-                "pred_80_lower": float(y_nowcast_predicted) - 1.282 * std_error,
-                "pred_80_upper": float(y_nowcast_predicted) + 1.282 * std_error,
-            })
-
-        nowcast_df = pd.DataFrame(nowcast_rows).set_index("index")
-        y_df = pd.concat([y_df, nowcast_df])
 
     return X_known.iloc[range(n_known - train_size)].copy(), y_df, rmse, mae
 
