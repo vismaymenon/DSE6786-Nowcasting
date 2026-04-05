@@ -122,27 +122,34 @@ def add_covid_flags(df):
     df.loc['2020-07':'2020-09', 'covid_recover'] = 1
     return df
 
-def main():
+def load_main(run_date=None):
+    if run_date is None:
+        run_date = pd.Timestamp.today()
+    
+    last_day_of_month = run_date + pd.offsets.MonthEnd(0)
+    if run_date != last_day_of_month:
+        run_date = run_date - pd.offsets.MonthEnd(1)
+
+    prev_month = (run_date - pd.DateOffset(months=1)).strftime("%Y-%m")
 
     try:
         fred_md = save_df(add_covid_flags(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
-            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/2026-02-md.csv", skiprows=[1])),
+            load_series(f"https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/{prev_month}-md.csv", skiprows=[1])),
             get_fred_md_metadata()
         ))), "../data", "fred_md")
+        print(f"Finished loading and transforming monthly data for {prev_month}.")
 
         fred_qd = save_df(add_covid_flags(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
-            load_series("https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/2026-02-qd.csv", skiprows=[1, 2])),
+            load_series(f"https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/{prev_month}-qd.csv", skiprows=[1, 2])),
             get_fred_qd_metadata()
         ))), "../data", "fred_qd")
+        print(f"Finished loading and transforming quarterly data for {prev_month}.")
 
-        #Remove target variable from FRED QD
         fred_qd_X = save_df(fred_qd.iloc[:, 1:], "../data", "fred_qd_X")
-
-        #Save GDP target variable separately, add an additional transformation to convert to annualized growth rate
         gdp = save_df(fred_qd.iloc[:, [0]]*400, "../data", "gdp")  
         
     except Exception as e:
         print(f"An error occurred during data loading and transformation: {e}")
 
 if __name__ == "__main__":
-    main()
+    load_main(run_date=pd.Timestamp.today())
