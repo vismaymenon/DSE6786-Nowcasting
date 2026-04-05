@@ -610,6 +610,7 @@ CREATE TABLE IF NOT EXISTS model_forecasts (
     id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     run_date      DATE        NOT NULL,
     model_name    TEXT        NOT NULL,
+    quarter_date       DATE        NOT NULL,
     month_date    DATE        NOT NULL,
     nowcast       NUMERIC     NOT NULL,
     ci_50_lb      NUMERIC     NOT NULL,
@@ -621,7 +622,7 @@ CREATE TABLE IF NOT EXISTS model_forecasts (
     -- Upsert key: one forecast per model per month
     -- When pipeline revises a month's estimate, this
     -- constraint ensures we overwrite rather than duplicate
-    CONSTRAINT model_forecasts_unique UNIQUE (model_name, month_date)
+    CONSTRAINT model_forecasts_unique UNIQUE (model_name, quarter_date, month_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_model_forecasts_month_date
@@ -631,6 +632,8 @@ CREATE INDEX IF NOT EXISTS idx_model_forecasts_model_name
     ON model_forecasts (model_name);
 
 ALTER TABLE model_forecasts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon can read model_forecasts" ON model_forecasts;
 
 CREATE POLICY "anon can read model_forecasts"
     ON model_forecasts
