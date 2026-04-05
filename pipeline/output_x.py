@@ -140,11 +140,19 @@ def _add_lags(df: pd.DataFrame, n_lags: int) -> pd.DataFrame:
 
 def _finalise(X: pd.DataFrame, gdp: pd.DataFrame) -> tuple:
     """
-    Align X to the GDP index, drop NaN rows, return (X, y).
+    Align y to X's index, drop NaN rows, return (X, y).
+
+    Rows where X is complete but y is NaN are retained only if they fall
+    after the last known GDP date — these are the nowcast rows (e.g. 2026 Q1).
+    Rows before the GDP series begins are dropped.
+
+    NOTE: y will be NaN for nowcast rows. When passing to poos_validation(),
+    use only rows where y.notna() for evaluation, and use the last row of X
+    separately for the actual nowcast prediction.
     """
-    X = X.reindex(gdp.index)
-    y = gdp["GDPC1_t"]
-    valid = X.notna().all(axis=1) & y.notna()
+    y = gdp["GDPC1_t"].reindex(X.index)
+    last_y_date = gdp["GDPC1_t"].last_valid_index()
+    valid = X.notna().all(axis=1) & (y.notna() | (X.index > last_y_date))
     if (~valid).sum() > 0:
         print(f"  Dropping {(~valid).sum()} rows with NaNs.")
     return X[valid], y[valid]
@@ -163,7 +171,7 @@ def build_X1(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
     gdp   = _load_gdp()
     df_avg = _average_monthly_to_quarterly(df_md)
     df_q   = _prep_qd(df_qd)
-    X = df_avg.join(df_q, how="inner").reindex(gdp.index)
+    X = df_avg.join(df_q, how="inner")
     X, y = _finalise(X, gdp)
     print(f"X1 (avg):            {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
@@ -183,7 +191,7 @@ def build_X2(df_md: pd.DataFrame, df_qd: pd.DataFrame, n_lags: int = 4) -> tuple
     gdp   = _load_gdp()
     df_avg = _average_monthly_to_quarterly(df_md)
     df_q   = _prep_qd(df_qd)
-    qd1 = df_avg.join(df_q, how="inner").reindex(gdp.index)
+    qd1 = df_avg.join(df_q, how="inner")
     X = _add_lags(qd1, n_lags)
     X, y = _finalise(X, gdp)
     print(f"X2 (avg + {n_lags} lags):     {X.shape[0]} quarters × {X.shape[1]} features")
@@ -204,7 +212,7 @@ def build_X3(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
     gdp      = _load_gdp()
     df_umidas = _umidas_monthly_to_quarterly(df_md)
     df_q      = _prep_qd(df_qd)
-    X = df_umidas.join(df_q, how="inner").reindex(gdp.index)
+    X = df_umidas.join(df_q, how="inner")
     X, y = _finalise(X, gdp)
     print(f"X3 (U-MIDAS):        {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
@@ -229,8 +237,8 @@ def build_X4(df_md: pd.DataFrame, df_qd: pd.DataFrame,
     df_umidas = _umidas_monthly_to_quarterly(df_md)
     df_q      = _prep_qd(df_qd)
 
-    df_umidas_lagged = _add_lags(df_umidas.reindex(gdp.index), n_monthly_lags)
-    df_q_lagged      = _add_lags(df_q.reindex(gdp.index),      n_qd_lags)
+    df_umidas_lagged = _add_lags(df_umidas, n_monthly_lags)
+    df_q_lagged      = _add_lags(df_q, n_qd_lags)
 
     X = df_umidas_lagged.join(df_q_lagged, how="inner")
     X, y = _finalise(X, gdp)
@@ -254,8 +262,5 @@ if __name__ == "__main__":
     for name, X, y in [("X1 (avg)", X1, y1), ("X2 (avg + 4 lags)", X2, y2),
                         ("X3 (U-MIDAS)", X3, y3), ("X4 (U-MIDAS + lags)", X4, y4)]:
         print(f"\n--- {name} : {X.shape} ---")
-        #print(X.iloc[:5, 160:164].to_string())
-        if X.shape[1] > 1615:
-            print(X.iloc[:5, 2000:2005].to_string())
         print("y:")
         print(y.head().to_string())
