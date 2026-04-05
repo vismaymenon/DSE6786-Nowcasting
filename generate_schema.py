@@ -108,7 +108,6 @@ def generate_model_forecasts_table() -> str:
             f"    ci_50_ub      NUMERIC     NOT NULL,",
             f"    ci_80_lb      NUMERIC     NOT NULL,",
             f"    ci_80_ub      NUMERIC     NOT NULL,",
-            f"    rmse          NUMERIC     NOT NULL,",
             f"",
             f"    -- Upsert key: one forecast per model per month",
             f"    -- When pipeline revises a month's estimate, this",

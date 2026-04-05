@@ -57,3 +57,37 @@ def sync_csv_to_supabase(client:Client) -> None:
         n = upsert_table(client, table_name, rows)
         print(f"Finished upserting {n} rows to {table_name}.")
     print("All CSV files synced to Supabase.")
+
+def fill_missing_gdp_quarters(Client: Client) -> None:
+    # 1. Get today's quarter
+    target_date = pd.Timestamp.today()
+    last_day_of_month = target_date + pd.offsets.MonthEnd(0)
+    if target_date != last_day_of_month:
+        target_date = target_date - pd.offsets.MonthEnd(1)
+    
+
+    current_period = pd.Period(target_date, freq='Q')
+
+    # 2. Get the latest GDP entry
+    response = Client.table('gdp').select('sasdate').order('sasdate', desc=True).limit(1).single().execute()
+
+    if not response.data:
+        raise Exception("No GDP entries found or error fetching data.")
+
+    latest_period = pd.Period(response.data['sasdate'], freq='Q')
+
+    # 3. Check if already up to date
+    if latest_period >= current_period:
+        print("GDP is already up to date.")
+        return
+
+    # 4. Fill in missing quarters
+    missing_periods = pd.period_range(start=latest_period + 1, end=current_period, freq='Q')
+    missing_rows = [{"sasdate": p.end_time.date().replace(day=1).isoformat()} for p in missing_periods]
+
+    print(f"Inserting {len(missing_rows)} missing quarter(s): {missing_rows}")
+
+    # 5. Upsert the missing rows
+    Client.table('gdp').upsert(missing_rows, on_conflict='sasdate').execute()
+
+    print("Successfully filled missing GDP quarters.")

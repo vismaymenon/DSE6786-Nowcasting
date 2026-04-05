@@ -10,6 +10,9 @@ import pipeline.models.rf_benchmark as rf_benchmark
 import pipeline.models.rf_UMIDAS as rf_umidas_module
 import pipeline.models.rf_avg as rf_avg_module
 import pipeline.models.lasso as lasso_module
+from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data
+from database.client import get_backend_client
+from ragged_edge import read_table
 
 import pandas as pd
 from pathlib import Path
@@ -24,18 +27,28 @@ RF_LAGS    = 4
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 def build_lag_features(gdp, n_lags):
-    df = gdp.rename("gdp_growth").to_frame()
+    df = gdp["GDPC1_t"].rename("gdp_growth").to_frame()
     for lag in range(1, n_lags + 1):
         df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
-    df.dropna(inplace=True)
-    X = df[[f"lag_{i}" for i in range(1, n_lags + 1)]]
+    
+    lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
+    df = df.dropna(subset=lag_cols)  # only drop rows where lags are NaN, not gdp_growth
+    
+    X = df[lag_cols]
     y = df["gdp_growth"]
     return X, y
 
+
 def run_models():
-    # ── Load data ─────────────────────────────────────────────────────────────────
-    gdp = pd.read_csv(DATA_DIR / "gdp.csv", parse_dates=["sasdate"])
-    gdp = gdp.set_index("sasdate").sort_index()["GDPC1_t"] 
+    df_md, df_qd = load_filled_data()
+
+    X1, y1 = build_X1(df_md, df_qd)
+    X2, y2 = build_X2(df_md, df_qd, n_lags=4)
+    X3, y3 = build_X3(df_md, df_qd)
+    X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
+
+    supabase = get_backend_client()
+    gdp = read_table(supabase, "gdp")
 
     # ── AR(2) POOS ────────────────────────────────────────────────────────────────
     print("\n=== Autoregressive Model AR(2) ===")
@@ -57,41 +70,45 @@ def run_models():
         num_test=NUM_TEST,
     )
 
-    # ── RF U-MIDAS POOS ───────────────────────────────────────────────────────────
-    print("\n=== RF U-MIDAS ===")
-    df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
-    X_umidas, y_umidas = rf_umidas_module.build_feature_matrix(df_md_filled, df_qd_filled)
-    _, umidas_out, umidas_rmse, umidas_mae = poos.poos_validation(
-        method=rf_umidas_module.rf_umidas_nowcast,
-        X=X_umidas,
-        y=y_umidas,
-        num_test=NUM_TEST,
-    )
+    # # ── RF U-MIDAS POOS ───────────────────────────────────────────────────────────
+    # print("\n=== RF U-MIDAS ===")
+    # _, umidas_out, umidas_rmse, umidas_mae = poos.poos_validation(
+    #     method=rf_umidas_module.rf_umidas_nowcast,
+    #     X=X3,
+    #     y=y3,
+    #     num_test=NUM_TEST,
+    # )
 
-    # ── LASSO POOS ───────────────────────────────────────────────────────────
-    print("\n=== LASSO ===")
-    df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
-    X_lasso= lasso_module.monthly_to_quarterly(df_md_filled)
-    y_lasso = gdp
-    _, lasso_out, lasso_rmse, lasso_mae = poos.poos_validation(
-        method=lasso_module.fit_lasso,
-        X=X_lasso,
-        y=y_lasso,
-        num_test=NUM_TEST,
-    )
+    # # ── LASSO POOS ───────────────────────────────────────────────────────────
+    # print("\n=== LASSO ===")
+    # # df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
+    # _, lasso_out, lasso_rmse, lasso_mae = poos.poos_validation(
+    #     method=lasso_module.fit_lasso,
+    #     X=X1,
+    #     y=y1,
+    #     num_test=NUM_TEST,
+    # )
+
+    # print("\n=== LASSO with umidas ===")
+    # _, lasso_umidas_out, lasso_umidas_rmse, lasso_umidas_mae = poos.poos_validation(
+    #     method=lasso_module.fit_lasso,
+    #     X=X3,
+    #     y=y3,
+    #     num_test=NUM_TEST,
+    # )
 
 
-    # ── RF Average POOS ───────────────────────────────────────────────────────────
-    print("\n=== RF Average (monthly mean aggregation) ===")
-    X_avg, y_avg = rf_avg_module.build_feature_matrix(df_md_filled, df_qd_filled)
-    _, avg_out, avg_rmse, avg_mae = poos.poos_validation(
-        method=rf_avg_module.rf_aggre_nowcast,
-        X=X_avg,
-        y=y_avg,
-        num_test=NUM_TEST,
-    )
+    # # ── RF Average POOS ───────────────────────────────────────────────────────────
+    # print("\n=== RF Average (monthly mean aggregation) ===")
+    # _, avg_out, avg_rmse, avg_mae = poos.poos_validation(
+    #     method=rf_avg_module.rf_aggre_nowcast,
+    #     X=X1,
+    #     y=y1,
+    #     num_test=NUM_TEST,
+    # )
+
     
-    return ar_out, rf_out, umidas_out, lasso_out, avg_out
+    return ar_out, rf_out#, avg_out, lasso_umidas_out
 
 # # ── Results summary ───────────────────────────────────────────────────────────
 # print("\n" + "=" * 55)
@@ -126,43 +143,50 @@ def run_models():
 
 
 # Push Data to Supabase
-def push_results_to_supabase(client: Client, models: dict, run_date=None):
+def push_results_to_supabase(client, models: dict, run_date=None):
+    run_date = run_date or pd.Timestamp.today().date()
+    last_day_of_month = (pd.Timestamp(run_date) + pd.offsets.MonthEnd(0)).date()
+    if run_date != last_day_of_month:
+        run_date = (pd.Timestamp(run_date) - pd.offsets.MonthEnd(1)).date()
+
     for model_name, poos_out in models:
-        idx = poos_out.index[-1]
-        row = poos_out.iloc[-1]
+        # Only push nowcast rows (where y_true is NA)
+        nowcast_rows = poos_out[poos_out["y_true"].isna()]
 
-        run_date = run_date or pd.Timestamp.today().date()
-        last_day_of_month = run_date + pd.offsets.MonthEnd(0)
-        if run_date != last_day_of_month:
-            run_date = run_date - pd.offsets.MonthEnd(1)
+        if nowcast_rows.empty:
+            print(f"No nowcast rows found for model '{model_name}', skipping.")
+            continue
 
-        record = {
-            "run_date": run_date.strftime("%Y-%m-%d"),
-            "model_name": model_name,
-            "quarter_date": idx.to_period("Q").asfreq("M", how="end").to_timestamp().strftime("%Y-%m-%d"),
-            "month_date": idx.to_period("M").to_timestamp().strftime("%Y-%m-%d"),
-            "nowcast": row["y_hat"],
-            "ci_50_lb": row["pred_50_lower"],
-            "ci_50_ub": row["pred_50_upper"],
-            "ci_80_lb": row["pred_80_lower"],
-            "ci_80_ub": row["pred_80_upper"],
-        }
+        records = []
+        for idx, row in nowcast_rows.iterrows():
+            idx = pd.to_datetime(idx)  # ensure idx is Timestamp
+            records.append({
+                "run_date": run_date.strftime("%Y-%m-%d"),
+                "model_name": model_name,
+                "quarter_date": idx.to_period("Q").asfreq("M", how="end").to_timestamp().strftime("%Y-%m-%d"),
+                "month_date": idx.to_period("M").to_timestamp().strftime("%Y-%m-%d"),
+                "nowcast": row["y_hat"],
+                "ci_50_lb": row["pred_50_lower"],
+                "ci_50_ub": row["pred_50_upper"],
+                "ci_80_lb": row["pred_80_lower"],
+                "ci_80_ub": row["pred_80_upper"],
+            })
 
-        client.table("model_forecasts").upsert([record], on_conflict="model_name,quarter_date,month_date").execute() # Upsert to avoid duplicates if we re-run the pipeline in the same month
-        print(f"Upserted latest prediction for model '{model_name}' into 'poos_results'.")
+        client.table("model_forecasts").upsert(records, on_conflict="model_name,quarter_date,month_date").execute()
+        print(f"Upserted {len(records)} nowcast row(s) for model '{model_name}' into 'model_forecasts'.")
 
 def main():
     client = get_backend_client()
 
-    ar_out, rf_out, umidas_out, lasso_out, avg_out = run_models()
+    ar_out, rf_out = run_models()
     models = [("AR_Benchmark", ar_out), 
-              ("RF_Benchmark", rf_out), 
-              ("RF_Average", avg_out), 
-              ("RF_UMIDAS", umidas_out), 
-            #   ("LASSO_UMIDAS", lasso_out),
+              ("RF_Benchmark", rf_out)]
+            #  ("RF_Average", avg_out), 
+            #  ("RF_UMIDAS", umidas_out), 
+            #  ("LASSO_UMIDAS", lasso_umidas_out),
             #   ("LASSO_Lags_UMIDAS", lasso_out),
             #   ("LASSO_Lags_Average", lasso_out),
-              ("LASSO_Average", lasso_out)] ## DONT FORGET TO UPDATE THIS WHEN MODEL IS FINALISED
+            # ("LASSO_Average", lasso_out)] ## DONT FORGET TO UPDATE THIS WHEN MODEL IS FINALISED
     
     push_results_to_supabase(client, models)
 
