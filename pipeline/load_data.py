@@ -1,19 +1,11 @@
 import pandas as pd
 import numpy as np
-from fredapi import Fred
-
 import os
 from dotenv import load_dotenv
 
-load_dotenv() 
+load_dotenv()
+API_KEY = os.getenv("FRED_API_KEY")
 
-
-# def load_series_latest_release(series_id, api_key):  
-#     fred = Fred(api_key=api_key)
-#     data = fred.get_series(series_id)
-#     info = fred.get_series_info(series_id)
-#     data.name = info['title'] + ', ' + info['units']
-#     return data
 
 def get_fred_md_metadata():
     url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv"
@@ -34,39 +26,30 @@ def load_series(url, skiprows=None):
     return df
 
 def transform_series(series, series_id, tcode_dict):
-    # Ensure series is numeric and drop NaNs for calculation
     series = pd.to_numeric(series, errors='coerce')
     tcode = tcode_dict.get(series_id)
     series.name = series.name + "_t"
-    
-    if tcode == 1: # No transformation
+
+    if tcode == 1:   # No transformation
         return series
-    
     elif tcode == 2: # First difference: x(t) - x(t-1)
         return series.diff()
-    
-    elif tcode == 3: # Second difference: (x(t) - x(t-1)) - (x(t-1) - x(t-2))
+    elif tcode == 3: # Second difference: (x(t)-x(t-1)) - (x(t-1)-x(t-2))
         return series.diff().diff()
-    
     elif tcode == 4: # Natural log: ln(x)
         return np.log(series)
-    
     elif tcode == 5: # First difference of natural log: ln(x) - ln(x-1)
         return np.log(series).diff()
-    
     elif tcode == 6: # Second difference of natural log
         return np.log(series).diff().diff()
-    
     elif tcode == 7: # First difference of percent change
         return series.pct_change().diff()
-    
     else:
         print(f"Unknown Tcode: {tcode}. Returning raw series.")
         return series
-    
 
-def load_transformed_series_latest_release(df, metadata):
-    results = []   # ← separate list to collect transformed series
+def load_transformed_series(df, metadata):
+    results = []
     bad_series = []
 
     for series_id in metadata.keys():
@@ -78,13 +61,12 @@ def load_transformed_series_latest_release(df, metadata):
 
             raw_series = df[series_id]
             raw_series.name = series_id
-            transformed = transform_series(raw_series, series_id, metadata)
-            results.append(transformed) 
+            results.append(transform_series(raw_series, series_id, metadata))
 
         except Exception as e:
             bad_series.append(series_id)
             print(f"Error occurred while processing series {series_id}: {e}")
-    
+
     print(f"\nFailed series: {bad_series}")
     return pd.concat(results, axis=1)
 
@@ -94,14 +76,10 @@ def drop_columns(df):
 
     # Drop irregular "OILPRICEx" column following McCracken and Ng (2016) recommendation
     cols_to_drop = list(nan_cols) + ["OILPRICEx"]
-    df = df.drop(columns=cols_to_drop)
-
-    return df
+    return df.drop(columns=cols_to_drop)
 
 def drop_empty_rows(df):
-    # Drop rows where all values are NaN
-    df = df.iloc[2:]  
-    return df[df.index.notna()]
+    return df.dropna(how='all')
 
 def save_df(df, output_dir, file_name):
     if "__file__" in globals():
