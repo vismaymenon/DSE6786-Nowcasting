@@ -68,13 +68,21 @@ _, umidas_out, umidas_rmse, umidas_mae = poos.poos_validation(
 
 # ── RF LASSO POOS ───────────────────────────────────────────────────────────
 print("\n=== LASSO ===")
-df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
+# df_md_filled, df_qd_filled = rf_umidas_module.load_filled_data()
 X_lasso= lasso_module.monthly_to_quarterly(df_md_filled)
 y_lasso = gdp
 _, lasso_out, lasso_rmse, lasso_mae = poos.poos_validation(
     method=lasso_module.fit_lasso,
     X=X_lasso,
     y=y_lasso,
+    num_test=NUM_TEST,
+)
+
+print("\n=== LASSO with umidas ===")
+_, lasso_umidas_out, lasso_umidas_rmse, lasso_umidas_mae = poos.poos_validation(
+    method=lasso_module.fit_lasso,
+    X=X_umidas,
+    y=y_umidas,
     num_test=NUM_TEST,
 )
 
@@ -98,6 +106,7 @@ print(f"{'RF Benchmark':<25} {rf_rmse:>8.4f} {rf_mae:>8.4f}")
 print(f"{'RF Average':<25} {avg_rmse:>8.4f} {avg_mae:>8.4f}")
 print(f"{'RF U-MIDAS':<25} {umidas_rmse:>8.4f} {umidas_mae:>8.4f}")
 print(f"{'LASSO':<25} {lasso_rmse:>8.4f} {lasso_mae:>8.4f}")
+print(f"{'LASSO with U-MIDAS':<25} {lasso_umidas_rmse:>8.4f} {lasso_umidas_mae:>8.4f}")
 print("=" * 55)
 print(f"\nOOS observations: {NUM_TEST}")
 
@@ -119,3 +128,4 @@ poos.plot_poos_results(y_rf,     rf_out,     title="RF Benchmark — POOS")
 poos.plot_poos_results(y_avg,    avg_out,    title="RF Average — POOS")
 poos.plot_poos_results(y_umidas, umidas_out, title="RF U-MIDAS — POOS")
 poos.plot_poos_results(y_lasso, lasso_out,  title="LASSO — POOS")
+poos.plot_poos_results(y_umidas, lasso_umidas_out,  title="LASSO with U-MIDAS — POOS")
