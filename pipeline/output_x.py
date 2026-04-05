@@ -34,7 +34,6 @@ load_dotenv()
 
 THIS_DIR     = Path(__file__).resolve().parent   # pipeline/
 PROJECT_DIR  = THIS_DIR.parent                   # project root
-DATA_DIR     = PROJECT_DIR / "data"
 
 sys.path.insert(0, str(THIS_DIR))
 sys.path.insert(0, str(PROJECT_DIR))
@@ -65,13 +64,11 @@ def load_filled_data():
 
 
 def _load_gdp():
-    """Fetch gdp from Supabase."""
-    print("Loading gdp from Supabase …")
     supabase = get_backend_client()
-
-    df_gdp = read_table(supabase, "gdp")
-    gdp = df_gdp.set_index("sasdate").sort_index()
-    gdp = gdp[gdp.index.notna()]   # drop trailing NaT rows in gdp.csv
+    gdp = read_table(supabase, "gdp")
+    gdp["sasdate"] = pd.to_datetime(gdp["sasdate"])
+    gdp = gdp.set_index("sasdate").sort_index()
+    gdp = gdp[gdp.index.notna()]
     return gdp
 
 
@@ -178,6 +175,7 @@ def build_X1(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
     df_q   = _prep_qd(df_qd)
     X = df_avg.join(df_q, how="inner")
     X, y = _finalise(X, gdp)
+    X, y = X.iloc[4:], y.iloc[4:]  # drop first 4 quarters to match X2/X4 lag-trimmed window
     print(f"X1 (avg):            {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
@@ -219,6 +217,7 @@ def build_X3(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
     df_q      = _prep_qd(df_qd)
     X = df_umidas.join(df_q, how="inner")
     X, y = _finalise(X, gdp)
+    X, y = X.iloc[4:], y.iloc[4:]  # drop first 4 quarters to match X2/X4 lag-trimmed window
     print(f"X3 (U-MIDAS):        {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
@@ -252,6 +251,49 @@ def build_X4(df_md: pd.DataFrame, df_qd: pd.DataFrame,
 
 
 # =============================================================================
+# X_AR — AUTOREGRESSIVE BENCHMARK (2 GDP lags)
+# =============================================================================
+
+def build_X_AR(n_lags: int = 2) -> tuple:
+    """
+    X_AR: 2 quarterly lags of GDP growth as features.
+    Used by the AR benchmark model.
+    """
+    gdp = _load_gdp()
+    df = gdp["GDPC1_t"].rename("gdp_growth").to_frame()
+    for lag in range(1, n_lags + 1):
+        df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
+    lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
+    df = df[df[lag_cols].notna().all(axis=1)]  # only drop rows where lags are NaN
+    X = df[lag_cols]
+    y = df["gdp_growth"]
+    X, y = X.iloc[2:], y.iloc[2:]
+    print(f"X_AR ({n_lags} lags):          {X.shape[0]} quarters × {X.shape[1]} features")
+    return X, y
+
+
+# =============================================================================
+# X_RF_BENCH — BENCHMARK RF (4 GDP lags)
+# =============================================================================
+
+def build_X_RF_bench(n_lags: int = 4) -> tuple:
+    """
+    X_RF_bench: 4 quarterly lags of GDP growth as features.
+    Used by the benchmark RF model.
+    """
+    gdp = _load_gdp()
+    df = gdp["GDPC1_t"].rename("gdp_growth").to_frame()
+    for lag in range(1, n_lags + 1):
+        df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
+    lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
+    df = df[df[lag_cols].notna().all(axis=1)]  # only drop rows where lags are NaN
+    X = df[lag_cols]
+    y = df["gdp_growth"]
+    print(f"X_RF_bench ({n_lags} lags):    {X.shape[0]} quarters × {X.shape[1]} features")
+    return X, y
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -262,10 +304,14 @@ if __name__ == "__main__":
     X2, y2 = build_X2(df_md, df_qd, n_lags=4)
     X3, y3 = build_X3(df_md, df_qd)
     X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
+    X_AR, y_AR = build_X_AR(n_lags=2)
+    X_RF_bench, y_RF_bench = build_X_RF_bench(n_lags=4)
+
 
     print("\n=== Summary ===")
     for name, X, y in [("X1 (avg)", X1, y1), ("X2 (avg + 4 lags)", X2, y2),
-                        ("X3 (U-MIDAS)", X3, y3), ("X4 (U-MIDAS + lags)", X4, y4)]:
+                        ("X3 (U-MIDAS)", X3, y3), ("X4 (U-MIDAS + lags)", X4, y4),
+                        ("X_AR (AR benchmark)", X_AR, y_AR), ("X_RF_bench (RF benchmark)", X_RF_bench, y_RF_bench)]:
         print(f"\n--- {name} : {X.shape} ---")
         print("y:")
         print(y.head().to_string())
