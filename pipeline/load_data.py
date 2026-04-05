@@ -3,9 +3,15 @@ import numpy as np
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-API_KEY = os.getenv("FRED_API_KEY")
+load_dotenv() 
 
+
+# def load_series_latest_release(series_id, api_key):  
+#     fred = Fred(api_key=api_key)
+#     data = fred.get_series(series_id)
+#     info = fred.get_series_info(series_id)
+#     data.name = info['title'] + ', ' + info['units']
+#     return data
 
 def get_fred_md_metadata():
     url = "https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/current.csv"
@@ -47,9 +53,10 @@ def transform_series(series, series_id, tcode_dict):
     else:
         print(f"Unknown Tcode: {tcode}. Returning raw series.")
         return series
+    
 
-def load_transformed_series(df, metadata):
-    results = []
+def load_transformed_series_latest_release(df, metadata):
+    results = []   # ← separate list to collect transformed series
     bad_series = []
 
     for series_id in metadata.keys():
@@ -79,7 +86,9 @@ def drop_columns(df):
     return df.drop(columns=cols_to_drop)
 
 def drop_empty_rows(df):
-    return df.dropna(how='all')
+    # Drop rows where all values are NaN
+    df = df.iloc[2:]  
+    return df[df.index.notna()]
 
 def save_df(df, output_dir, file_name):
     if "__file__" in globals():

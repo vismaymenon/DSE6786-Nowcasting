@@ -24,7 +24,7 @@ Thumbs.db
 *.parquet
 
 # Allow working files
-!working/GDPPCT.xlsx
+!data/bic_lags.csv
 
 # Logs
 *.log

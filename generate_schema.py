@@ -1,7 +1,7 @@
 """
 generate_schema.py
 ==================
-Reads the 4 CSV files in data/ and auto-generates supabase/schema.sql.
+Reads the 5 CSV files in data/ and auto-generates supabase/schema.sql.
 
 Run this from the project root:
     python generate_schema.py
@@ -18,8 +18,9 @@ OUTPUT_FILE = Path("database/schema.sql")
 CSV_FILES = {
     "gdp": DATA_DIR / "gdp.csv",
     "fred_md": DATA_DIR / "fred_md.csv",
-    "fred_qd": DATA_DIR / "fred_qd.csv",
-    "fred_qd_x": DATA_DIR / "fred_qd_X.csv"
+    "fred_qd_x": DATA_DIR / "fred_qd_X.csv",
+    "filled_md": DATA_DIR / "filled_md.csv",
+    "filled_qd": DATA_DIR / "filled_qd.csv"
 }
 
 # Define the schema type for each column
@@ -81,6 +82,7 @@ def gen_rls(table_name: str) -> str:
     return "\n".join([
         f"ALTER TABLE {table_name} ENABLE ROW LEVEL SECURITY;",
         f"",
+        f'DROP POLICY IF EXISTS "anon can read {table_name}" ON {table_name};',
         f'CREATE POLICY "anon can read {table_name}"',
         f"    ON {table_name}",
         f"    FOR SELECT",

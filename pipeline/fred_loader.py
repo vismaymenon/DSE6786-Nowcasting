@@ -9,7 +9,6 @@ BATCH_SIZE = 500
 CSV_FILES = {
     "gdp": DATA_DIR / "gdp.csv",
     "fred_md": DATA_DIR / "fred_md.csv",
-    "fred_qd": DATA_DIR / "fred_qd.csv",
     "fred_qd_x": DATA_DIR / "fred_qd_X.csv"
 }
 
