@@ -58,9 +58,12 @@ def sync_csv_to_supabase(client:Client) -> None:
         print(f"Finished upserting {n} rows to {table_name}.")
     print("All CSV files synced to Supabase.")
 
-def fill_missing_gdp_quarters(Client: Client) -> None:
+def fill_missing_gdp_quarters(Client: Client, date = None) -> None:
     # 1. Get today's quarter
-    target_date = pd.Timestamp.today()
+    if date is None:
+        target_date = pd.Timestamp.today()
+    else:
+        target_date = pd.Timestamp(date)
     last_day_of_month = target_date + pd.offsets.MonthEnd(0)
     if target_date != last_day_of_month:
         target_date = target_date - pd.offsets.MonthEnd(1)

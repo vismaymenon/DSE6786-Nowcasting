@@ -39,7 +39,7 @@ def upsert_table(client: Client, table_name: str, df: pd.DataFrame, on_conflict:
     print(f"Upserted {len(records)} rows into '{table_name}'.")
 
 
-def extend_time_index(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataFrame:
+def extend_time_index(df: pd.DataFrame, date_col: str, freq: str, date = None) -> pd.DataFrame:
     df = df.copy()
 
     if freq == "M":
@@ -49,7 +49,11 @@ def extend_time_index(df: pd.DataFrame, date_col: str, freq: str) -> pd.DataFram
     else:
         raise ValueError("freq must be 'M' or 'Q'")
 
-    target_date = pd.Timestamp.today()
+    if date is None:
+        target_date = pd.Timestamp.today()
+    else:
+        target_date = pd.Timestamp(date)
+
     last_day_of_month = target_date + pd.offsets.MonthEnd(0)
     if target_date != last_day_of_month:
         target_date = target_date - pd.offsets.MonthEnd(1)
@@ -98,7 +102,7 @@ def _fill_series(series: pd.Series, p: int) -> pd.Series:
     return series_filled
 
 
-def fill_ragged_edge(client: Client, data_table: str, freq: str) -> pd.DataFrame:
+def fill_ragged_edge(client: Client, data_table: str, freq: str, date = None) -> pd.DataFrame:
     date_col = "sasdate"
     lag_csv = "data/bic_lags.csv"
 
@@ -106,7 +110,7 @@ def fill_ragged_edge(client: Client, data_table: str, freq: str) -> pd.DataFrame
     df = read_table(client, data_table)
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.sort_values(date_col).reset_index(drop=True)
-    df = extend_time_index(df, date_col, freq)
+    df = extend_time_index(df, date_col, freq, date)
     print(f"  -> {len(df)} rows after extending to {df[date_col].max().date()}")
 
     print(f"Reading '{lag_csv}'...")
