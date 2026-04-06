@@ -177,15 +177,108 @@ def get_dummy_metrics(models: list[str]):
 # =============================================================================
 
 
+# ── Onboarding wizard helpers ─────────────────────────────────────────────────
+
+
+_ABOUT_NOWCASTING = "Lorem ipsum dolor sit amet"
+_QUARTER_SELECTION = "Lorem ipsum dolor sit amet"
+_MODEL_SELECTION = "Lorem ipsum dolor sit amet"
+_CONFIDENCE_INTERVAL = "Lorem ipsum dolor sit amet"
+_HISTORICAL_DATA = "Lorem ipsum dolor sit amet"
+_DATE_RANGE_SELECTION = "Lorem ipsum dolor sit amet"
+_FLASH_ESTIMATE = "Lorem ipsum dolor sit amet"
+_EVALUATION_METRICS = "Lorem ipsum dolor sit amet"
+
+_TOOLTIP_BASE = (
+    "position: fixed; background: white; padding: 1.2rem 1.5rem; "
+    "border-radius: 8px; z-index: 1001; min-width: 240px; max-width: 320px; "
+    "box-shadow: 0 4px 20px rgba(0,0,0,0.4);"
+)
+_BTN_MARGIN = "margin-right: 8px;"
+
+
+def _btn_row(step: int):
+    buttons = []
+    if step >= 2:
+        buttons.append(
+            ui.input_action_button("wizard_prev", "\u2190", style=_BTN_MARGIN)
+        )
+    if step == 1:
+        buttons.append(
+            ui.input_action_button("wizard_skip", "Skip tutorial", style=_BTN_MARGIN)
+        )
+        buttons.append(ui.input_action_button("wizard_next", "Show me around"))
+    elif step == 6:
+        pass  # no Next — user must click the Historical Data tab to advance
+    elif step == 10:
+        buttons.append(ui.input_action_button("wizard_finish", "Finish tutorial"))
+    else:
+        buttons.append(ui.input_action_button("wizard_next", "\u2192"))
+    return ui.div(*buttons, style="margin-top: 1rem;")
+
+
+def _centered_modal(header: str, body: str | None, step: int):
+    content = [ui.h3(header, style="margin-bottom: 1rem;")]
+    if body:
+        content.append(ui.p(body))
+    content.append(_btn_row(step))
+    return ui.div(
+        *content,
+        style=(
+            "position: fixed; top: 50%; left: 50%; "
+            "transform: translate(-50%, -50%); "
+            "background: white; padding: 2.5rem; border-radius: 10px; "
+            "min-width: 360px; max-width: 540px; "
+            "box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), "
+            "0 4px 30px rgba(0,0,0,0.4); "
+            "z-index: 1001; pointer-events: auto;"
+        ),
+    )
+
+
+def _spotlight(selector: str, tooltip_pos: str, description: str, step: int):
+    """
+    Spotlight overlay: the target element gets a massive box-shadow that
+    darkens everything else. A floating tooltip sits next to it.
+    """
+    css = f"""
+        {selector} {{
+            position: relative !important;
+            z-index: 1000 !important;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.7) !important;
+            border-radius: 6px;
+        }}
+    """
+    hint = ""
+    if step == 6:
+        hint = ui.p(
+            ui.tags.em("Click the 'Historical Data' tab to continue."),
+            style="margin-top: 0.5rem; font-size: 0.85rem; color: #555;",
+        )
+    return ui.div(
+        ui.tags.style(css),
+        ui.div(
+            ui.p(description, style="margin-bottom: 0.25rem;"),
+            hint,
+            _btn_row(step),
+            style=f"{_TOOLTIP_BASE} {tooltip_pos}",
+        ),
+    )
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 nowcast_controls = ui.div(
-    ui.input_radio_buttons(
-        "quarter",
-        None,
-        choices=QUARTERS,
-        selected="2026:Q1",
-        inline=True,
+    ui.card(
+        ui.card_header("Quarter Selection"),
+        ui.input_radio_buttons(
+            "quarter",
+            None,
+            choices=QUARTERS,
+            selected="2026:Q1",
+            inline=True,
+        ),
+        id="card_quarter",
     ),
     ui.card(
         ui.card_header("Model Selection"),
@@ -195,6 +288,7 @@ nowcast_controls = ui.div(
             choices=MODELS,
             selected=["Combined model"],
         ),
+        id="card_nowcast_model",
     ),
     ui.card(
         ui.card_header("Confidence Interval"),
@@ -204,18 +298,20 @@ nowcast_controls = ui.div(
             choices={"None": "None"},
             selected="None",
         ),
+        id="card_ci",
     ),
 )
 
 historical_controls = ui.div(
     ui.card(
-        ui.card_header("Input date range"),
+        ui.card_header("Date Range Selection"),
         ui.input_date_range(
             "hist_date_range",
             None,
             start="2020-01-01",
             end="2022-01-01",
         ),
+        id="card_date_range",
     ),
     ui.card(
         ui.card_header("Display Options"),
@@ -233,14 +329,17 @@ historical_controls = ui.div(
             choices={"1": "1st month", "2": "2nd month", "3": "3rd month"},
             selected="1",
         ),
+        id="card_hist_display",
     ),
     ui.card(
         ui.card_header("Evaluation Metrics"),
         ui.output_ui("eval_metrics"),
+        id="card_eval",
     ),
 )
 
 app_ui = ui.page_fluid(
+    ui.output_ui("wizard_ui"),
     ui.h1("US GDP Nowcast"),
     ui.navset_tab(
         ui.nav_panel(
@@ -269,7 +368,111 @@ app_ui = ui.page_fluid(
 
 def server(input, output, session):
 
-    # Keep the CI dropdown choices in sync with selected models
+    wizard_step = reactive.value(1)
+
+    # ── Wizard rendering ──────────────────────────────────────────────────────
+
+    @render.ui
+    def wizard_ui():
+        step = wizard_step.get()
+        if step == 0:
+            return ui.div()
+        if step == 1:
+            return _centered_modal("US GDP Nowcast", None, step)
+        if step == 2:
+            return _centered_modal(
+                "About Nowcasting", _ABOUT_NOWCASTING, step)
+        if step == 3:
+            return _spotlight(
+                "#card_quarter",
+                "right: 36%; top: 20%;",
+                _QUARTER_SELECTION, step,
+            )
+        if step == 4:
+            return _spotlight(
+                "#card_nowcast_model",
+                "right: 36%; top: 37%;",
+                _MODEL_SELECTION, step,
+            )
+        if step == 5:
+            return _spotlight(
+                "#card_ci",
+                "right: 36%; top: 56%;",
+                _CONFIDENCE_INTERVAL, step,
+            )
+        if step == 6:
+            return _spotlight(
+                ".nav-tabs li:nth-child(2) .nav-link",
+                "left: 35%; top: 7%;",
+                _HISTORICAL_DATA, step,
+            )
+        if step == 7:
+            return _spotlight(
+                "#card_date_range",
+                "right: 36%; top: 22%;",
+                _DATE_RANGE_SELECTION, step,
+            )
+        if step == 8:
+            return _spotlight(
+                "#card_hist_display",
+                "right: 36%; top: 38%;",
+                _MODEL_SELECTION, step,
+            )
+        if step == 9:
+            return _spotlight(
+                "#card_hist_display",
+                "right: 36%; top: 54%;",
+                _FLASH_ESTIMATE, step,
+            )
+        if step == 10:
+            return _spotlight(
+                "#card_eval",
+                "right: 36%; top: 68%;",
+                _EVALUATION_METRICS, step,
+            )
+        return ui.div()
+
+    # ── Wizard navigation ─────────────────────────────────────────────────────
+
+    @reactive.effect
+    @reactive.event(input.wizard_next)
+    def _on_next():
+        new = wizard_step.get() + 1
+        if new == 7:
+            ui.update_navs("main_tabs", selected="Historical Data")
+        elif new <= 6:
+            ui.update_navs("main_tabs", selected="Nowcast")
+        wizard_step.set(new)
+
+    @reactive.effect
+    @reactive.event(input.wizard_prev)
+    def _on_prev():
+        new = wizard_step.get() - 1
+        if new <= 6:
+            ui.update_navs("main_tabs", selected="Nowcast")
+        else:
+            ui.update_navs("main_tabs", selected="Historical Data")
+        wizard_step.set(new)
+
+    @reactive.effect
+    @reactive.event(input.wizard_skip)
+    def _on_skip():
+        wizard_step.set(0)
+
+    @reactive.effect
+    @reactive.event(input.wizard_finish)
+    def _on_finish():
+        wizard_step.set(0)
+
+    # Advance from step 6 when the user clicks the Historical Data tab
+    @reactive.effect
+    @reactive.event(input.main_tabs)
+    def _tab_advance():
+        if wizard_step.get() == 6 and input.main_tabs() == "Historical Data":
+            wizard_step.set(7)
+
+    # ── Keep CI dropdown in sync with selected models ─────────────────────────
+
     @reactive.effect
     def _sync_ci_choices():
         selected = input.nowcast_models()
