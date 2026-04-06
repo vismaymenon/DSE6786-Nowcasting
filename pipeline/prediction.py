@@ -1,17 +1,12 @@
-import pipeline.poos as poos
 from pipeline.models.rf import randomForest
 from pipeline.models.lasso import fit_lasso
-from pipeline.models.AR_benchmark import ar_model_nowcast
-import pipeline.models.lasso as lasso_module
 
 from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data
 from database.client import get_backend_client
-from ragged_edge import read_table
+
 import pandas as pd
 import numpy as np
-from pathlib import Path
 
-from supabase import Client
 from database.client import get_backend_client
 
 def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame) -> pd.DataFrame:
@@ -133,12 +128,12 @@ def run_models():
 
     #ar_out = nowcast_single(autoregressive.run_ar_benchmark, X, y, gdp)
     #rf_out = nowcast_single(rf_benchmark.run_rf_benchmark, X, y, gdp)
-    rf_avg_out = nowcast_single(rf_avg_module.rf_aggre_nowcast, X2, y2, gdp)
-    rf_umidas_out = nowcast_single(rf_umidas_module.fit_rf_umidas, X4, y4, gdp)
-    lasso_out = nowcast_single(lasso_module.fit_lasso, X1, y1, gdp)
-    lasso_umidas_out = nowcast_single(lasso_module.fit_lasso, X3, y3, gdp)
-    lasso_lags_out = nowcast_single(lasso_module.fit_lasso, X2, y2, gdp)
-    lasso_umidas_lags_out = nowcast_single(lasso_module.fit_lasso, X4, y4, gdp)
+    rf_avg_out = nowcast_single(randomForest, X2, y2, gdp)
+    rf_umidas_out = nowcast_single(randomForest, X4, y4, gdp)
+    lasso_out = nowcast_single(fit_lasso, X1, y1, gdp)
+    lasso_umidas_out = nowcast_single(fit_lasso, X3, y3, gdp)
+    lasso_lags_out = nowcast_single(fit_lasso, X2, y2, gdp)
+    lasso_umidas_lags_out = nowcast_single(fit_lasso, X4, y4, gdp)
 
     print("\n=== Nowcast for latest quarter (with gdp.index[-2] filled from Supabase if needed) ===")
 
