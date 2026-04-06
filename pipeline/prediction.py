@@ -1,8 +1,7 @@
 import pipeline.poos as poos
-import pipeline.models.autoregressive as autoregressive
-import pipeline.models.rf_benchmark as rf_benchmark
-import pipeline.models.rf_UMIDAS as rf_umidas_module
-import pipeline.models.rf_avg as rf_avg_module
+from pipeline.models.rf import randomForest
+from pipeline.models.lasso import fit_lasso
+from pipeline.models.AR_benchmark import ar_model_nowcast
 import pipeline.models.lasso as lasso_module
 
 from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data
@@ -145,12 +144,12 @@ def run_models():
 
     #ar_out = nowcast_single_latest(autoregressive.run_ar_benchmark, X, y, gdp)
     #rf_out = nowcast_single_latest(rf_benchmark.run_rf_benchmark, X, y, gdp)
-    rf_avg_out_latest = nowcast_single_latest(rf_avg_module.rf_aggre_nowcast, X2, y2, gdp, model_name = "RF_Average", client=supabase)
-    rf_umidas_out_latest = nowcast_single_latest(rf_umidas_module.fit_rf_umidas, X4, y4, gdp, model_name = "RF_UMIDAS", client=supabase)
-    lasso_out_latest = nowcast_single_latest(lasso_module.fit_lasso, X1, y1, gdp, model_name = "LASSO_Average", client=supabase)
-    lasso_umidas_out_latest = nowcast_single_latest(lasso_module.fit_lasso, X3, y3, gdp, model_name = "LASSO_UMIDAS", client=supabase)
-    lasso_lags_out_latest = nowcast_single_latest(lasso_module.fit_lasso, X2, y2, gdp, model_name = "LASSO_Lags_Average", client=supabase)
-    lasso_umidas_lags_out_latest = nowcast_single_latest(lasso_module.fit_lasso, X4, y4, gdp, model_name = "LASSO_Lags_UMIDAS", client=supabase)
+    rf_avg_out_latest = nowcast_single_latest(randomForest, X2, y2, gdp, model_name = "RF_Average", client=supabase)
+    rf_umidas_out_latest = nowcast_single_latest(randomForest, X4, y4, gdp, model_name = "RF_UMIDAS", client=supabase)
+    lasso_out_latest = nowcast_single_latest(fit_lasso, X1, y1, gdp, model_name = "LASSO_Average", client=supabase)
+    lasso_umidas_out_latest = nowcast_single_latest(fit_lasso, X3, y3, gdp, model_name = "LASSO_UMIDAS", client=supabase)
+    lasso_lags_out_latest = nowcast_single_latest(fit_lasso, X2, y2, gdp, model_name = "LASSO_Lags_Average", client=supabase)
+    lasso_umidas_lags_out_latest = nowcast_single_latest(fit_lasso, X4, y4, gdp, model_name = "LASSO_Lags_UMIDAS", client=supabase)
 
     models =[("RF_Average", rf_avg_out, rf_avg_out_latest), 
              ("RF_UMIDAS", rf_umidas_out, rf_umidas_out_latest), 

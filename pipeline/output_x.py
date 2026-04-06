@@ -158,8 +158,6 @@ def _finalise(X: pd.DataFrame, gdp: pd.DataFrame) -> tuple:
         print(f"  Dropping {(~valid).sum()} rows with NaNs.")
     return X[valid], y[valid]
 
-
-
 # =============================================================================
 # X1 — SIMPLE AVERAGE
 # =============================================================================

@@ -4,6 +4,7 @@ from pipeline.ragged_edge import fill_ragged_edge, upsert_table
 from pipeline.fred_loader import sync_csv_to_supabase, fill_missing_gdp_quarters
 from pipeline.load_data import load_main
 import pandas as pd
+from pipeline.prediction import run_models
 
 def run():
     load_main(run_date=pd.Timestamp.today())
@@ -17,6 +18,8 @@ def run():
     df_filled_qd["sasdate"] = df_filled_qd["sasdate"].dt.strftime("%Y-%m-%d")
     upsert_table(supabase, "filled_qd", df_filled_qd)
     fill_missing_gdp_quarters(supabase)
+
+    run_models()
 
 if __name__ == "__main__":
     run()
