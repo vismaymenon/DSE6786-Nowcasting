@@ -39,8 +39,11 @@ def upsert_table(client: Client, table_name: str, df: pd.DataFrame, on_conflict:
     print(f"Upserted {len(records)} rows into '{table_name}'.")
 
 
-def extend_time_index(df: pd.DataFrame, date_col: str, freq: str, date = None) -> pd.DataFrame:
+def extend_time_index(df: pd.DataFrame, date_col: str, freq: str, date=None) -> pd.DataFrame:
     df = df.copy()
+
+    # Ensure datetime
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
 
     if freq == "M":
         freq_pd = "MS"
@@ -135,3 +138,42 @@ def fill_ragged_edge(client: Client, data_table: str, freq: str, date = None) ->
     print(f"Done. Final shape: {df_filled.shape}")
 
     return df_filled
+
+def fill_ragged_edge_until(QD, MD, cutoff_date):
+    QD_target = extend_time_index(QD, "sasdate", "Q", cutoff_date)
+    MD_target = extend_time_index(MD, "sasdate", "M", cutoff_date)
+
+    lag_csv = "data/bic_lags.csv"
+    lag_df = pd.read_csv(lag_csv)
+    lag_dict = dict(zip(lag_df["variable"], lag_df["lag"]))
+    print(f"  -> {len(lag_dict)} variables to fill")
+
+    QD_filled = QD.copy()
+    MD_filled = MD.copy()
+
+    for col in lag_dict:
+        if col in QD_filled.columns:
+            QD_filled[col] = pd.to_numeric(QD_filled[col], errors="coerce")
+        elif col in MD_filled.columns:
+            MD_filled[col] = pd.to_numeric(MD_filled[col], errors="coerce")
+
+    for i, (var, p) in enumerate(lag_dict.items(), 1):
+        if var in QD_filled.columns:
+            print(f"  [{i}/{len(lag_dict)}] Filling '{var}' in QD with AR({p})")
+            QD_filled[var] = _fill_series(QD_filled[var], p)
+        elif var in MD_filled.columns:
+            print(f"  [{i}/{len(lag_dict)}] Filling '{var}' in MD with AR({p})")
+            MD_filled[var] = _fill_series(MD_filled[var], p)
+        else:
+            print(f"  [{i}/{len(lag_dict)}] '{var}' skipped (not in QD or MD)")
+
+    return QD_filled, MD_filled
+
+# To test
+
+if __name__ == "__main__": 
+    qd = pd.read_csv("data/filled_qd.csv")[:-5]
+    md = pd.read_csv("data/filled_md.csv")[:-5]
+    filled_qd, filled_md = fill_ragged_edge_until(qd, md, cutoff_date="2026-06-01")
+    print(filled_qd.tail())
+    print(filled_md.tail())
