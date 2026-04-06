@@ -4,8 +4,10 @@ from typing import Callable
 from datetime import date
 import os
 from dotenv import load_dotenv
+from output_x import load_filled_data, build_X1, build_X2, build_X3, build_X4, build_X_AR, build_X_RF_bench
+from ragged_edge import fill_ragged_edge_until
 
-# ── Benchmark model ───────────────────────────────────────────────────────────
+# ── Placeholder model ───────────────────────────────────────────────────────────
 
 def placeholder_model(X, y):
     """
@@ -42,29 +44,97 @@ def placeholder_model(X, y):
         "y_test_predicted": y_test_predicted
     }
 
+
+# -- Inside function for POOS --------------------------------------------------
+
+from dateutil.relativedelta import relativedelta
+
+def cut_and_fill(version: int,
+                 q_predicted: pd.Timestamp,
+                 QD_t: pd.DataFrame,
+                 MD_t: pd.DataFrame
+                 ):
+    """
+    Cuts QD, MD, and y to what would be available at prediction time.
+
+    Parameters
+    ----------
+    version     : int          — 1 to 6, representing month of prediction
+                                 within the two quarters surrounding q_predicted
+    q_predicted : pd.Timestamp — quarter being predicted (e.g. 2025-03-01 for Q1 2025)
+    build       : Callable     — feature builder e.g. build_X1, build_X3
+    QD_t        : pd.DataFrame — full quarterly data (sasdate index)
+    MD_t        : pd.DataFrame — full monthly data (sasdate index)
+    y_t         : pd.Series    — full GDP series
+    train_size  : int          — number of quarters to use for training
+
+    Returns
+    -------
+    X : pd.DataFrame — feature matrix up to available data
+    y : pd.Series    — GDP up to available data
+    """
+
+    # ── Determine cutoff dates based on version ───────────────────────────────
+    # q_predicted = first month of the last month of the predicted quarter
+    # e.g. Q1 2025 → 2025-03-01
+
+    # Quarter start = 2 months before q_predicted label
+    q_start = q_predicted - relativedelta(months=2)  # e.g. 2025-01-01
+
+    # Previous quarter end
+    prev_q_end = q_start - relativedelta(months=1)   # e.g. 2024-12-01
+    prev_q_end_qd = prev_q_end                        # QD uses quarter-end dates
+
+    version_cutoffs = {
+        # version: (qd_cutoff,                    md_cutoff,                         gdp_cutoff)
+        1: (prev_q_end - relativedelta(months=3),  prev_q_end - relativedelta(months=2), prev_q_end - relativedelta(months=3)),
+        2: (prev_q_end - relativedelta(months=3),  prev_q_end - relativedelta(months=1), prev_q_end - relativedelta(months=3)),
+        3: (prev_q_end,                            prev_q_end,                            prev_q_end),
+        4: (prev_q_end,                            q_start,                               prev_q_end),
+        5: (prev_q_end,                            q_start + relativedelta(months=1),     prev_q_end),
+        6: (q_predicted,                           q_predicted,                           prev_q_end),
+    }
+
+    qd_cutoff, md_cutoff, gdp_cutoff = version_cutoffs[version]
+
+    print(f"Version {version} | Predicting: {q_predicted.date()} | "
+          f"QD until: {qd_cutoff.date()} | "
+          f"MD until: {md_cutoff.date()} | "
+          f"GDP until: {gdp_cutoff.date()}")
+
+    # ── Cut data to cutoff dates ───────────────────────────────────────────────
+    QD_cut = QD_t[QD_t["sasdate"] <= pd.Timestamp(qd_cutoff)].copy()
+    MD_cut = MD_t[MD_t["sasdate"] <= pd.Timestamp(md_cutoff)].copy()
+
+    # ── Build feature matrix using the build function ─────────────────────────
+    qd_filled, md_filled = fill_ragged_edge_until(QD_cut, MD_cut, cutoff_date=q_predicted)
+
+    return qd_filled, md_filled
+
 # ── POOS ──────────────────────────────────────────────────────────────────────
+
 
 def poos_validation(
     method: Callable,
-    X: pd.DataFrame | np.ndarray,
-    y: pd.Series | np.ndarray,
+    buildX: Callable,
+    QD_t: pd.DataFrame, 
+    MD_t: pd.DataFrame,
+    y_t: pd.Series,
+    version: int,
+    num_train: int = 163,
     num_test: int = 100,
 ) -> tuple[pd.DataFrame, np.ndarray, pd.DataFrame]:
 
-    X = pd.DataFrame(X)
-    y = pd.Series(y)
     n = len(y)
-
-    # POOS only runs on rows where y is known (exclude nowcast rows where y=NaN)
-    y_known = y[y.notna()]
-    X_known = X.loc[y_known.index]
-    n_known = len(y_known)
-
-    train_size = n_known - num_test
+    train_size = n - num_test
     test_indices, actuals = [], []
     preds_point, preds_50_lower, preds_50_upper, preds_80_lower, preds_80_upper = [], [], [], [], []
 
-    for t in range(n_known - train_size):
+    for t in range(num_test):
+        q_predicted = y.index[train_size + t]  # quarter being predicted
+        QD_filled, MD_filled = cut_and_fill(version, q_predicted, buildX, QD_t, MD_t, y_t, num_train)
+        
+        
         X_window = X_known.iloc[t:t+train_size+1]
         y_window = y_known.iloc[t:t+train_size+1]
 
@@ -94,7 +164,7 @@ def poos_validation(
     rmse = np.sqrt(np.mean((y_df["y_true"] - y_df["y_hat"]) ** 2))
     mae  = np.mean(np.abs(y_df["y_true"] - y_df["y_hat"]))
 
-    return X_known.iloc[range(n_known - train_size)].copy(), y_df, rmse, mae
+    return y_df, rmse, mae
 
 
 # Plot results 
@@ -134,18 +204,33 @@ def plot_poos_results(y_full, y_df, title="POOS Forecast vs Actual", last_n=200)
     ax.grid(True, alpha=0.3)
     fig.autofmt_xdate()   # ← rotates date labels so they don't overlap
     plt.tight_layout()
-    plt.show()
+
+    os.makedirs("pipeline/plots", exist_ok=True)
+    safe_title = title.replace(" ", "_").replace("/", "_")
+    fig.savefig(os.path.join("pipeline/plots", f"{safe_title}.png"), dpi=300, bbox_inches="tight")
+    
+    plt.close()
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    load_dotenv() 
-    API_KEY = os.getenv("API_KEY")
+    qd = pd.read_csv("data/filled_qd.csv")[:-5]
+    md = pd.read_csv("data/filled_md.csv")[:-5]
 
-    # Load & transform a FRED series as target (y)
-    # Using INDPRO (Industrial Production) as an example
-    y_series = load_data.load_transformed_series_latest_release("INDPRO", API_KEY)
+    # Ensure datetime for sasdate
+    qd["sasdate"] = pd.to_datetime(qd["sasdate"], errors="coerce")
+    md["sasdate"] = pd.to_datetime(md["sasdate"], errors="coerce")
 
+    filled_qd, filled_md = cut_and_fill(
+        1,
+        pd.Timestamp("2025-12-01"),
+        qd,
+        md,
+        pd.Series(dtype="float64", index=pd.to_datetime([])),  # dummy y_t for now
+    )
+    print(filled_qd.tail())
+    print(filled_md.tail())
+    
     # Use lags of y as a simple feature matrix (AR-style)
     X_df = pd.DataFrame({
         "lag_1": y_series.shift(1),
