@@ -213,6 +213,34 @@ def _finalise(X: pd.DataFrame, gdp: pd.DataFrame) -> tuple:
         print(f"  Dropping {(~valid).sum()} rows with NaNs.")
     return X[valid], y[valid]
 
+def build_X0_SA(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
+    """
+    X0_SA: averaged monthly features + quarterly features.
+
+    Monthly variables are averaged across the 3 months within each quarter.
+    """
+    gdp   = _load_gdp()
+    df_avg = _average_monthly_to_quarterly(df_md)
+    X = df_avg.join(_load_gdp_lags(), how="left")
+    X, y = _finalise(X, gdp)
+    print(f"X0_SA (avg):            {X.shape[0]} quarters × {X.shape[1]} features")
+    return X, y
+
+def build_X0_UMIDAS(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
+    """
+    X0_UMIDAS: U-MIDAS monthly features (_m1/_m2/_m3) + quarterly features.
+
+    Each monthly variable becomes 3 quarterly features preserving
+    within-quarter dynamics.
+    """
+    gdp   = _load_gdp()
+    df_umidas = _umidas_monthly_to_quarterly(df_md)
+    X = df_umidas.join(_load_gdp_lags(), how="left")
+    X, y = _finalise(X, gdp)
+    print(f"X0_UMIDAS (U-MIDAS):        {X.shape[0]} quarters × {X.shape[1]} features")
+    return X, y
+
+
 # =============================================================================
 # X1 — SIMPLE AVERAGE
 # =============================================================================
@@ -357,6 +385,10 @@ if __name__ == "__main__":
     DATA_DIR = PROJECT_DIR / "data"
 
     df_md, df_qd = load_filled_data()
+    
+    X0SA, y0SA             = build_X0_SA(df_md, df_qd)
+    X0UMIDAS, y0UMIDAS     = build_X0_UMIDAS(df_md, df_qd, n_lags=4)
+
 
     X1, y1             = build_X1(df_md, df_qd)
     X2, y2             = build_X2(df_md, df_qd, n_lags=4)

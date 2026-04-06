@@ -31,6 +31,7 @@ from pipeline.output_x import (
     load_filled_data,
     build_X1, build_X2, build_X3, build_X4,
     build_X_AR, build_X_RF_bench,
+    build_X0_SA, build_X0_UMIDAS
 )
 
 NUM_TEST = 100
@@ -48,6 +49,8 @@ df_md, df_qd = load_filled_data()
 
 X_ar,       y_ar       = build_X_AR()
 X_rf_bench, y_rf_bench = build_X_RF_bench()
+X0SA, y0SA             = build_X0_SA(df_md, df_qd)
+X0UMIDAS, y0UMIDAS     = build_X0_UMIDAS(df_md, df_qd)
 X1,         y1         = build_X1(df_md, df_qd)
 X2,         y2         = build_X2(df_md, df_qd)
 X3,         y3         = build_X3(df_md, df_qd)
@@ -66,45 +69,47 @@ def run_poos(name, method, X, y):
     return y_df, rmse, mae
 
 
-ar_out,           ar_rmse,           ar_mae           = run_poos("AR Benchmark",    ar_model_nowcast, X_ar,       y_ar)
-rf_bench_out,     rf_bench_rmse,     rf_bench_mae     = run_poos("RF Benchmark",    randomForest,     X_rf_bench, y_rf_bench)
-lasso_out,        lasso_rmse,        lasso_mae        = run_poos("LASSO",           fit_lasso,        X1,         y1)
-lasso_lags_out,   lasso_lags_rmse,   lasso_lags_mae   = run_poos("LASSO Simple Average lags",      fit_lasso,        X2,         y2)
-rf_avg_out,       rf_avg_rmse,       rf_avg_mae       = run_poos("RF Simple Average",          randomForest,     X2,         y2)
-lasso_umidas_out, lasso_umidas_rmse, lasso_umidas_mae = run_poos("LASSO U-MIDAS",   fit_lasso,        X3,         y3)
-rf_umidas_out,    rf_umidas_rmse,    rf_umidas_mae    = run_poos("RF U-MIDAS",      randomForest,     X4,         y4)
+# ar_out,           ar_rmse,           ar_mae           = run_poos("AR Benchmark",    ar_model_nowcast, X_ar,       y_ar)
+# rf_bench_out,     rf_bench_rmse,     rf_bench_mae     = run_poos("RF Benchmark",    randomForest,     X_rf_bench, y_rf_bench)
+lasso_out,        lasso_rmse,        lasso_mae        = run_poos("LASSO SA",           fit_lasso,        X0SA,         y0SA)
+lasso_lags_out,   lasso_lags_rmse,   lasso_lags_mae   = run_poos("LASSO UMIDAS",      fit_lasso,        X0UMIDAS,         y0UMIDAS)
+# lasso_out,        lasso_rmse,        lasso_mae        = run_poos("LASSO",           fit_lasso,        X1,         y1)
+# lasso_lags_out,   lasso_lags_rmse,   lasso_lags_mae   = run_poos("LASSO Simple Average lags",      fit_lasso,        X2,         y2)
+# rf_avg_out,       rf_avg_rmse,       rf_avg_mae       = run_poos("RF Simple Average",          randomForest,     X2,         y2)
+# lasso_umidas_out, lasso_umidas_rmse, lasso_umidas_mae = run_poos("LASSO U-MIDAS",   fit_lasso,        X3,         y3)
+# rf_umidas_out,    rf_umidas_rmse,    rf_umidas_mae    = run_poos("RF U-MIDAS",      randomForest,     X4,         y4)
 
 
 # =============================================================================
 # STEP 3 — Ensemble average (models 3–7, excluding benchmarks)
 # =============================================================================
 
-ensemble_dfs = [lasso_out, lasso_lags_out, rf_avg_out, lasso_umidas_out, rf_umidas_out]
+# ensemble_dfs = [lasso_out, lasso_lags_out, rf_avg_out, lasso_umidas_out, rf_umidas_out]
 
 # Align all to the same index (intersection)
-common_idx = ensemble_dfs[0].index
-for df in ensemble_dfs[1:]:
-    common_idx = common_idx.intersection(df.index)
+# common_idx = ensemble_dfs[0].index
+# for df in ensemble_dfs[1:]:
+#     common_idx = common_idx.intersection(df.index)
 
-ensemble_y_hat       = np.mean([df.loc[common_idx, "y_hat"]         for df in ensemble_dfs], axis=0)
-ensemble_50_lower    = np.mean([df.loc[common_idx, "pred_50_lower"]  for df in ensemble_dfs], axis=0)
-ensemble_50_upper    = np.mean([df.loc[common_idx, "pred_50_upper"]  for df in ensemble_dfs], axis=0)
-ensemble_80_lower    = np.mean([df.loc[common_idx, "pred_80_lower"]  for df in ensemble_dfs], axis=0)
-ensemble_80_upper    = np.mean([df.loc[common_idx, "pred_80_upper"]  for df in ensemble_dfs], axis=0)
-ensemble_y_true      = lasso_out.loc[common_idx, "y_true"]
+# ensemble_y_hat       = np.mean([df.loc[common_idx, "y_hat"]         for df in ensemble_dfs], axis=0)
+# ensemble_50_lower    = np.mean([df.loc[common_idx, "pred_50_lower"]  for df in ensemble_dfs], axis=0)
+# ensemble_50_upper    = np.mean([df.loc[common_idx, "pred_50_upper"]  for df in ensemble_dfs], axis=0)
+# ensemble_80_lower    = np.mean([df.loc[common_idx, "pred_80_lower"]  for df in ensemble_dfs], axis=0)
+# ensemble_80_upper    = np.mean([df.loc[common_idx, "pred_80_upper"]  for df in ensemble_dfs], axis=0)
+# ensemble_y_true      = lasso_out.loc[common_idx, "y_true"]
 
-ensemble_out = pd.DataFrame({
-    "y_true":        ensemble_y_true.values,
-    "y_hat":         ensemble_y_hat,
-    "pred_50_lower": ensemble_50_lower,
-    "pred_50_upper": ensemble_50_upper,
-    "pred_80_lower": ensemble_80_lower,
-    "pred_80_upper": ensemble_80_upper,
-}, index=common_idx)
+# ensemble_out = pd.DataFrame({
+#     "y_true":        ensemble_y_true.values,
+#     "y_hat":         ensemble_y_hat,
+#     "pred_50_lower": ensemble_50_lower,
+#     "pred_50_upper": ensemble_50_upper,
+#     "pred_80_lower": ensemble_80_lower,
+#     "pred_80_upper": ensemble_80_upper,
+# }, index=common_idx)
 
-valid_ens = ensemble_out["y_true"].notna()
-ensemble_rmse = float(np.sqrt(np.mean((ensemble_out.loc[valid_ens, "y_true"] - ensemble_out.loc[valid_ens, "y_hat"]) ** 2)))
-ensemble_mae  = float(np.mean(np.abs(ensemble_out.loc[valid_ens, "y_true"] - ensemble_out.loc[valid_ens, "y_hat"])))
+# valid_ens = ensemble_out["y_true"].notna()
+# ensemble_rmse = float(np.sqrt(np.mean((ensemble_out.loc[valid_ens, "y_true"] - ensemble_out.loc[valid_ens, "y_hat"]) ** 2)))
+# ensemble_mae  = float(np.mean(np.abs(ensemble_out.loc[valid_ens, "y_true"] - ensemble_out.loc[valid_ens, "y_hat"])))
 
 
 # =============================================================================
@@ -112,14 +117,14 @@ ensemble_mae  = float(np.mean(np.abs(ensemble_out.loc[valid_ens, "y_true"] - ens
 # =============================================================================
 
 models = [
-    ("AR Benchmark",   ar_rmse,           ar_mae,           ar_out),
-    ("RF Benchmark",   rf_bench_rmse,     rf_bench_mae,     rf_bench_out),
-    ("LASSO",          lasso_rmse,        lasso_mae,        lasso_out),
-    ("LASSO lags",     lasso_lags_rmse,   lasso_lags_mae,   lasso_lags_out),
-    ("RF avg",         rf_avg_rmse,       rf_avg_mae,       rf_avg_out),
-    ("LASSO U-MIDAS",  lasso_umidas_rmse, lasso_umidas_mae, lasso_umidas_out),
-    ("RF U-MIDAS",     rf_umidas_rmse,    rf_umidas_mae,    rf_umidas_out),
-    ("Ensemble",       ensemble_rmse,     ensemble_mae,     ensemble_out),
+    # ("AR Benchmark",   ar_rmse,           ar_mae,           ar_out),
+    # ("RF Benchmark",   rf_bench_rmse,     rf_bench_mae,     rf_bench_out),
+    ("LASSO SA",          lasso_rmse,        lasso_mae,        lasso_out),
+    ("LASSO UMIDAS",     lasso_lags_rmse,   lasso_lags_mae,   lasso_lags_out),
+    # ("RF avg",         rf_avg_rmse,       rf_avg_mae,       rf_avg_out),
+    # ("LASSO U-MIDAS",  lasso_umidas_rmse, lasso_umidas_mae, lasso_umidas_out),
+    # ("RF U-MIDAS",     rf_umidas_rmse,    rf_umidas_mae,    rf_umidas_out),
+    # ("Ensemble",       ensemble_rmse,     ensemble_mae,     ensemble_out),
 ]
 
 print("\n" + "=" * 100)
@@ -138,14 +143,14 @@ print(f"\nOOS observations: {NUM_TEST}  |  CI shown for last OOS quarter: {out.i
 # STEP 5 — Plots
 # =============================================================================
 
-poos.plot_poos_results(y_ar,       ar_out,           title="AR Benchmark — POOS")
-poos.plot_poos_results(y_rf_bench, rf_bench_out,     title="RF Benchmark — POOS")
+# poos.plot_poos_results(y_ar,       ar_out,           title="AR Benchmark — POOS")
+# poos.plot_poos_results(y_rf_bench, rf_bench_out,     title="RF Benchmark — POOS")
 poos.plot_poos_results(y1,         lasso_out,        title="LASSO (simple avg) — POOS")
-poos.plot_poos_results(y2,         lasso_lags_out,   title="LASSO (avg + lags) — POOS")
-poos.plot_poos_results(y2,         rf_avg_out,       title="RF avg — POOS")
-poos.plot_poos_results(y3,         lasso_umidas_out, title="LASSO U-MIDAS — POOS")
-poos.plot_poos_results(y3,         rf_umidas_out,    title="RF U-MIDAS — POOS")
-poos.plot_poos_results(y1,         ensemble_out,     title="Ensemble (avg of models 3–7) — POOS")
+poos.plot_poos_results(y2,         lasso_lags_out,   title="LASSO (UMIDAS) — POOS")
+# poos.plot_poos_results(y2,         rf_avg_out,       title="RF avg — POOS")
+# poos.plot_poos_results(y3,         lasso_umidas_out, title="LASSO U-MIDAS — POOS")
+# poos.plot_poos_results(y3,         rf_umidas_out,    title="RF U-MIDAS — POOS")
+# poos.plot_poos_results(y1,         ensemble_out,     title="Ensemble (avg of models 3–7) — POOS")
 
 
 # =============================================================================

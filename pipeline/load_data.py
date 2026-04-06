@@ -88,6 +88,8 @@ def drop_columns(df):
         cols_to_drop.append('OUTNFB')
     if 'OUTBS' in df.columns:
         cols_to_drop.append('OUTBS')
+    if 'OPHPBS' in df.columns:
+        cols_to_drop.append('OPHPBS')
     return df.drop(columns=cols_to_drop)
 
 def drop_empty_rows(df):
