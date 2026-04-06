@@ -83,7 +83,11 @@ def drop_columns(df):
 
     # Drop irregular "OILPRICEx" column following McCracken and Ng (2016) recommendation
     # Drop "OUTNFB" and "OUTBS" which are value added output for workers, which is basically GDP.
-    cols_to_drop = list(nan_cols) + ["OILPRICEx"] + ['OUTNFB', 'OUTBS']
+    cols_to_drop = list(nan_cols) + ["OILPRICEx"] 
+    if 'OUTNFB' in df.columns:
+        cols_to_drop.append('OUTNFB')
+    if 'OUTBS' in df.columns:
+        cols_to_drop.append('OUTBS')
     return df.drop(columns=cols_to_drop)
 
 def drop_empty_rows(df):
