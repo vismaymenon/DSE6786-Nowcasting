@@ -9,103 +9,72 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-def compare_model_matrix(df, time_col='quarter_date', **dm_kwargs):
+def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
     """
-    Runs pairwise Diebold-Mariano tests across all (model, version) combinations.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Must contain columns: model_name, model_version, y_actual, y_predicted, <time_col>
-    time_col : str
-        Column used to align observations across models (e.g. 'date', 'period').
-    **dm_kwargs
-        Passed directly to diebold_mariano() (e.g. loss='absolute', h=3).
-
-    Returns
-    -------
-    matrix : pd.DataFrame
-        N x N matrix of DM statistics. Negative = row model is better.
-    pval_matrix : pd.DataFrame
-        N x N matrix of p-values.
-    skipped : list of str
-        Pairs that were skipped and why.
+    Runs pairwise DM tests and returns a winner-first results table.
     """
     df = df.copy()
+    # Create unique identifier: 'AR_Benchmark_v1'
     df['id'] = df['model_name'] + "_v" + df['version'].astype(str)
 
-    # Pivot so each model-version is a column, rows are time periods
-    # This enforces alignment on time_col automatically
+    # 1. Pivot to align all models by time_col
     predictions = df.pivot_table(
         index=time_col,
         columns='id',
         values='nowcast',
-        aggfunc='first'        # if duplicates exist, take first
+        aggfunc='first'
     )
 
-    # y_actual should be the same across all models — validate and extract once
+    # 2. Extract aligned actuals (using gdp_actual from your table)
     actuals = (
         df.drop_duplicates(subset=[time_col])
         .set_index(time_col)['gdp_actual']
         .reindex(predictions.index)
     )
 
-    if actuals.isna().any():
-        raise ValueError(f"Missing y_actual values for some {time_col} entries.")
-
     unique_ids = sorted(predictions.columns)
-    results    = []
-    skipped    = []
+    results = []
 
-    for id1, id2 in combinations(unique_ids, 2):
+    # 3. Iterate through unique pairs
+    for id_a, id_b in combinations(unique_ids, 2):
+        yhat_a = predictions[id_a]
+        yhat_b = predictions[id_b]
 
-        yhat1 = predictions[id1]
-        yhat2 = predictions[id2]
-
-        # Only use time periods where BOTH models have predictions
-        mask = yhat1.notna() & yhat2.notna()
-        n_overlap = mask.sum()
-
-        if n_overlap < 10:
-            skipped.append(f"{id1} vs {id2}: only {n_overlap} overlapping observations.")
+        # Use only overlapping time periods
+        mask = yhat_a.notna() & yhat_b.notna()
+        if mask.sum() < 10:
             continue
 
         try:
+            # Run the DM test
             stat, pval = dm_test(
                 actuals[mask].values,
-                yhat1[mask].values,
-                yhat2[mask].values,
+                yhat_a[mask].values,
+                yhat_b[mask].values,
                 **dm_kwargs
             )
-            results.append({'m1': id1, 'm2': id2, 'stat': stat,  'p': pval})
-            results.append({'m1': id2, 'm2': id1, 'stat': -stat, 'p': pval})
 
-        except Exception as e:
-            skipped.append(f"{id1} vs {id2}: {e}")
+            # --- WINNER-FIRST LOGIC ---
+            # If stat is negative, Model A has lower loss (Winner)
+            # If stat is positive, Model B has lower loss (Winner)
+            if stat <= 0:
+                m1, m2 = id_a, id_b
+                final_stat = stat
+            else:
+                m1, m2 = id_b, id_a
+                final_stat = -stat  # Flip sign to show m1's advantage
 
-    if not results:
-        raise RuntimeError("No valid pairs found. Check your data alignment and grouping.")
+            results.append({
+                'model_1': m1,
+                'model_2': m2,
+                'test_statistic': final_stat,
+                'p_value': pval
+            })
 
-    res_df = pd.DataFrame(results)
+        except Exception:
+            continue
 
-    matrix      = res_df.pivot(index='m1', columns='m2', values='stat')
-    pval_matrix = res_df.pivot(index='m1', columns='m2', values='p')
-
-    # Diagonal is undefined (model vs itself) — fill with NaN
-    for m in unique_ids:
-        if m in matrix.columns:
-            matrix.loc[m, m]      = np.nan
-            pval_matrix.loc[m, m] = np.nan
-
-    # Align index and columns to the same order
-    matrix      = matrix.loc[unique_ids, unique_ids]
-    pval_matrix = pval_matrix.loc[unique_ids, unique_ids]
-
-    if skipped:
-        print(f"Skipped {len(skipped)} pairs:")
-        for s in skipped: print(f"  - {s}")
-
-    return matrix, pval_matrix, skipped
+    return pd.DataFrame(results).sort_values('p_value')
 
 def dm_test(
     y_actual: np.ndarray,
@@ -281,11 +250,9 @@ df_forecasts = fetch_forecast_data()
 print(df_forecasts.head(15))
 
 # ── TEST ──────────────────────────────────────────────────────────────────────
-matrix, pval_matrix, skipped = compare_model_matrix(
+model_pairs = compare_model_pairs(
     df_forecasts,
-    time_col='quarter_date',
-    loss='squared',
-    bandwidth='auto'
+    time_col='quarter_date'
 )
 
 MODEL_COLUMNS = [
@@ -302,7 +269,21 @@ MODEL_COLUMNS = [
 # print("Test Statistic:" ,matrix)
 # print("P-value:" ,pval_matrix)
 
+def filter_matching_versions(results_df):
+    """
+    Filters the DM results table to only show pairs with 
+    the same version number (e.g., v1 vs v1, v2 vs v2).
+    """
+    # 1. Extract the digits at the end of the ID strings
+    # \d+$ means "one or more digits at the end of the string"
+    v1 = results_df['model_1'].str.extract(r'(\d+)$').astype(int)
+    v2 = results_df['model_2'].str.extract(r'(\d+)$').astype(int)
+    
+    # 2. Return rows where those extracted numbers match
+    return results_df[v1[0] == v2[0]].copy()
+
 from pipeline.load_data import save_df
-save_df(matrix, "../data", "dm_stat_matrix.csv")
-save_df(pval_matrix, "../data", "dm_pval_matrix.csv")
+print(model_pairs.head(10))
+matched_results = filter_matching_versions(model_pairs)
+save_df(matched_results, "../data", "filter_dm_test_results")
 
