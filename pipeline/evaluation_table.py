@@ -1,38 +1,57 @@
 import pandas as pd
 from database.client import get_backend_client
-from supabase import Client
 
-def push_evaluation_to_supabase(client, models: list, run_date=None):
-    # Pull GDP actuals from Supabase
-    gdp_response = client.table("gdp").select("sasdate, GDPC1_t").execute()
-    gdp_df = pd.DataFrame(gdp_response.data)
-    gdp_df["sasdate"] = pd.to_datetime(gdp_df["sasdate"])
-    gdp_df = gdp_df.set_index("sasdate")
+MODEL_COLUMNS = [
+    "AR_Benchmark",
+    "RF_Benchmark",
+    "RF_Lags_Average",
+    "RF_Lags_UMIDAS",
+    "LASSO_UMIDAS",
+    "LASSO_Average",
+    "LASSO_Lags_Average",
+    "All_Model_Average",
+]
 
-    # Collect y_hat for each model
-    model_preds = {}
-    for model_name, poos_out, rmse, mae in models:
-        model_preds[model_name] = poos_out["y_hat"]
+def compute_and_push_rmse(client) -> None:
+    """
+    Reads evaluation table, computes RMSE per model per version,
+    and upserts into rmse table.
+    """
+    response = (
+        client.table("evaluation")
+        .select("version, gdp_actual, " + ", ".join(MODEL_COLUMNS))
+        .not_.is_("gdp_actual", "null")   # only rows where actual is known
+        .execute()
+    )
 
-    # Combine all model predictions into a wide dataframe
-    eval_df = pd.DataFrame(model_preds)
-    eval_df.index = pd.to_datetime(eval_df.index)
+    if not response.data:
+        raise ValueError("No data found in evaluation table.")
 
-    # Compute average across all models
-    eval_df["All_Model_Average"] = eval_df.mean(axis=1)
+    df = pd.DataFrame(response.data)
+    df["version"] = df["version"].astype(float)
 
-    # Join GDP actuals
-    eval_df = eval_df.join(gdp_df["GDPC1_t"], how="left")
-    eval_df = eval_df.rename(columns={"GDPC1_t": "gdp_actual"})
-
-    # Build records
     records = []
-    for idx, row in eval_df.iterrows():
-        record = {"quarter_date": pd.Timestamp(idx).to_period("Q").asfreq("M", how="end").to_timestamp().strftime("%Y-%m-%d")}
-        for col in eval_df.columns:
-            value = row[col]
-            record[col] = None if pd.isna(value) else float(value)
-        records.append(record)
+    for version, group in df.groupby("version"):
+        for model in MODEL_COLUMNS:
+            col = group[model].dropna()
+            actual = group.loc[col.index, "gdp_actual"]
 
-    client.table("evaluation").upsert(records, on_conflict="quarter_date").execute()
-    print(f"Upserted {len(records)} rows into 'evaluation'.")
+            if len(col) == 0:
+                continue
+
+            rmse = float(((col - actual) ** 2).mean() ** 0.5)
+            records.append({
+                "model":   model,
+                "version": version,
+                "rmse":    rmse,
+            })
+
+    if not records:
+        raise ValueError("No RMSE values could be computed.")
+
+    client.table("rmse").upsert(records, on_conflict="model,version").execute()
+    print(f"Pushed {len(records)} RMSE records.")
+
+    if __name__ == "__main__":
+        compute_and_push_rmse(client)
+       

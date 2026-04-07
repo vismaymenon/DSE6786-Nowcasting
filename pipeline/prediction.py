@@ -16,7 +16,7 @@ def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame) -> p
     target_idx = gdp.index[-2]
 
     # Calculate train_size: years since 1960-09-01 minus 100
-    train_size = len(y) - 100
+    train_size = 166
 
     # Get integer position of target_idx in X
     target_pos = X.index.get_loc(target_idx)
@@ -53,7 +53,7 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
     target_idx = gdp.index[-1]
     prev_idx   = gdp.index[-2]
 
-    train_size = len(y) - 100
+    train_size = 166
 
     # Fill in gdp.index[-2] if it is NA
     y_filled = y.copy()
