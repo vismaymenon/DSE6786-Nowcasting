@@ -168,6 +168,9 @@ def fill_ragged_edge_until(QD, MD, cutoff_date):
         else:
             print(f"  [{i}/{len(lag_dict)}] '{var}' skipped (not in QD or MD)")
 
+    QD_filled = QD_filled.fillna(0)
+    MD_filled = MD_filled.fillna(0)
+
     return QD_filled, MD_filled
 
 # To test
