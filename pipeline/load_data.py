@@ -172,5 +172,7 @@ def load_main(run_date=None):
     except Exception as e:
         print(f"An error occurred during data loading and transformation: {e}")
 
+    return fred_md, fred_qd_X, gdp
+
 if __name__ == "__main__":
     load_main(run_date=pd.Timestamp.today())
