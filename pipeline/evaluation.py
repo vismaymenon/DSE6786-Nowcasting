@@ -23,98 +23,73 @@ load_dotenv()
 
 import numpy as np
 import pandas as pd
+from datetime import date
+import matplotlib.pyplot as plt
+from pipeline.load_data import load_main
 import pipeline.poos as poos
 from pipeline.models.AR_benchmark import ar_model_nowcast
 from pipeline.models.rf import randomForest
 from pipeline.models.lasso import fit_lasso
-from pipeline.output_x import (
-    load_filled_data,
-    build_X1, build_X2, build_X3, build_X4,
-    build_X_AR, build_X_RF_bench,
-    build_X0_SA, build_X0_UMIDAS
+from pipeline.output_x_poos import (
+    build_X1_from_cut, 
+    build_X2_from_cut, 
+    build_X3_from_cut, 
+    build_X4_from_cut, 
+    build_X_AR_from_cut, 
 )
 
-NUM_TEST = 50
-
+NUM_TEST = 100
 
 # =============================================================================
-# STEP 1 — Load data and build feature matrices
+# STEP 1 — Load data
 # =============================================================================
 
-print("=" * 60)
-print("Step 1: Loading data and building feature matrices")
-print("=" * 60)
+# evaluation.py
 
-df_md, df_qd = load_filled_data()
+QD_full, MD_full, gdp_full = load_main()
 
-X_ar,       y_ar       = build_X_AR()
-X_rf_bench, y_rf_bench = build_X_RF_bench()
-X0SA, y0SA             = build_X0_SA(df_md, df_qd)
-X0UMIDAS, y0UMIDAS     = build_X0_UMIDAS(df_md, df_qd)
-X1,         y1         = build_X1(df_md, df_qd)
-X2,         y2         = build_X2(df_md, df_qd)
-X3,         y3         = build_X3(df_md, df_qd)
-X4,         y4         = build_X4(df_md, df_qd)
-
-# Columns to exclude — GDP components/accounting identities released with GDP
-LEAKING_SERIES = {
-    "PCECC96", "OUTNFB", "OUTBS", "INDPRO", "IPFINAL",
-    "HOABS", "HOANBS", "IPMANSICS", "OPHPBS"
-}
-
-def remove_leaking_columns(X: pd.DataFrame, leaking_series: set = LEAKING_SERIES) -> pd.DataFrame:
-    """
-    Remove columns where the base series ID (part before first '_') 
-    is in the leaking_series set.
-
-    e.g. removes 'OUTBS_t', 'OUTBS_t_m1', 'OUTBS_t_lag2', etc.
-
-    Parameters
-    ----------
-    X              : pd.DataFrame
-    leaking_series : set of base series IDs to remove
-
-    Returns
-    -------
-    pd.DataFrame with leaking columns dropped
-    """
-    cols_to_drop = [
-        col for col in X.columns
-        if col.split("_")[0] in leaking_series
-    ]
-
-    print(f"Dropping {len(cols_to_drop)} leaking columns: {cols_to_drop}")
-    return X.drop(columns=cols_to_drop)
-
-
-# ── Apply to all feature matrices ─────────────────────────────────────────────
-X1 = remove_leaking_columns(X1)
-X2 = remove_leaking_columns(X2)
-X3 = remove_leaking_columns(X3)
-X4 = remove_leaking_columns(X4)
-# X_ar and X_rf_bench only use GDP lags — no macro variables to drop
-
+# Ensure sasdate is a column
+if isinstance(QD_full.index, pd.DatetimeIndex):
+    QD_full = QD_full.reset_index().rename(columns={"index": "sasdate"})
+if isinstance(MD_full.index, pd.DatetimeIndex):
+    MD_full = MD_full.reset_index().rename(columns={"index": "sasdate"})
 
 # =============================================================================
 # STEP 2 — Run POOS for each model
 # =============================================================================
 
-def run_poos(name, method, X, y):
+def run_poos(
+        name: str,
+        method,
+        buildX,
+        QD_t: pd.DataFrame,
+        MD_t: pd.DataFrame,
+        y_full: pd.Series,
+        version: int,
+        num_test: int,
+        num_train: int,
+):
     print(f"\n{'=' * 60}")
     print(f"Running POOS: {name}")
     print("=" * 60)
-    y_df, rmse, mae = poos.poos_validation(method=method, X=X, y=y, num_test=NUM_TEST)
+    y_df, rmse, mae = poos.poos_validation(
+        method=method,
+        buildX=buildX,
+        QD_t=QD_t,
+        MD_t=MD_t,
+        y_full=y_full,
+        version=version,
+        num_test=num_test,
+        num_train=num_train
+    )
     return y_df, rmse, mae
 
 
-ar_out,           ar_rmse,           ar_mae           = run_poos("AR Benchmark",    ar_model_nowcast, X_ar,       y_ar)
-poos.plot_poos_results(y_ar,       ar_out,           title="AR Benchmark — POOS")
+# ar_out, ar_rmse, ar_mae = run_poos("AR Benchmark", ar_model_nowcast, build_X_AR_from_cut, QD_full, MD_full, gdp_full, version=1, num_test=NUM_TEST, num_train=166)
+# poos.plot_poos_results(gdp_full, ar_out, itle="AR Benchmark — POOS")
 
-rf_bench_out,     rf_bench_rmse,     rf_bench_mae     = run_poos("RF Benchmark",    randomForest,     X_rf_bench, y_rf_bench)
-poos.plot_poos_results(y_rf_bench, rf_bench_out,     title="RF Benchmark — POOS")
-
-lasso_out,        lasso_rmse,        lasso_mae        = run_poos("LASSO",           fit_lasso,        X1,         y1)
-poos.plot_poos_results(y1,         lasso_out,        title="LASSO (simple avg) — POOS")
+lasso_out,        lasso_rmse,        lasso_mae        = run_poos("LASSO", fit_lasso, build_X1_from_cut, QD_full, MD_full, gdp_full, version=3, num_test=NUM_TEST, num_train=162)
+poos.plot_poos_results(gdp_full, lasso_out, title="LASSO (simple avg) — POOS")
 
 lasso_lags_out,   lasso_lags_rmse,   lasso_lags_mae   = run_poos("LASSO Simple Average lags",      fit_lasso,        X2,         y2)
 poos.plot_poos_results(y2,         lasso_lags_out,   title="LASSO (avg + lags) — POOS")

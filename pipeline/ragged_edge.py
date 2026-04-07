@@ -1,6 +1,7 @@
 import pandas as pd
 from supabase import Client
 from statsmodels.tsa.ar_model import AutoReg
+from dateutil.relativedelta import relativedelta
 
 
 def read_table(client: Client, table_name: str) -> pd.DataFrame:
@@ -148,8 +149,8 @@ def fill_ragged_edge_until(QD, MD, cutoff_date):
     lag_dict = dict(zip(lag_df["variable"], lag_df["lag"]))
     print(f"  -> {len(lag_dict)} variables to fill")
 
-    QD_filled = QD.copy()
-    MD_filled = MD.copy()
+    QD_filled = QD_target.copy()
+    MD_filled = MD_target.copy()
 
     for col in lag_dict:
         if col in QD_filled.columns:
@@ -167,13 +168,16 @@ def fill_ragged_edge_until(QD, MD, cutoff_date):
         else:
             print(f"  [{i}/{len(lag_dict)}] '{var}' skipped (not in QD or MD)")
 
+    QD_filled = QD_filled.fillna(0)
+    MD_filled = MD_filled.fillna(0)
+
     return QD_filled, MD_filled
 
 # To test
 
 if __name__ == "__main__": 
-    qd = pd.read_csv("data/filled_qd.csv")[:-5]
-    md = pd.read_csv("data/filled_md.csv")[:-5]
+    qd = pd.read_csv("data/fred_qd_X.csv")
+    md = pd.read_csv("data/fred_md.csv")
     filled_qd, filled_md = fill_ragged_edge_until(qd, md, cutoff_date="2026-06-01")
     print(filled_qd.tail())
     print(filled_md.tail())

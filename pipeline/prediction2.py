@@ -157,11 +157,6 @@ MODEL_REGISTRY: dict[str, dict] = {
         "X": X_ar,
         "y": y_ar,
     },
-    "RF_Benchmark": {
-        "model": randomForest,
-        "X": X_rf,
-        "y": y_rf,
-    },
     "RF_Lags_Average": {
         "model": randomForest,
         "X": X2,
