@@ -103,6 +103,7 @@ def build_X3_from_cut(
     n_lags: int = 4,
 ) -> tuple[pd.DataFrame, pd.Series]:
     df_umidas  = _umidas_monthly_to_quarterly_from_df(md_filled)
+    
     df_q       = _prep_qd_from_df(qd_filled)
     X_base     = df_umidas.join(df_q, how="inner")
     gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_lags)
@@ -110,7 +111,6 @@ def build_X3_from_cut(
     X, y       = _finalise_from_cut(X, gdp_actual)
     print(f"X3 (U-MIDAS):        {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
-
 
 def build_X4_from_cut(
     qd_filled: pd.DataFrame,
@@ -123,14 +123,29 @@ def build_X4_from_cut(
 ) -> tuple[pd.DataFrame, pd.Series]:
     df_umidas        = _umidas_monthly_to_quarterly_from_df(md_filled)
     df_q             = _prep_qd_from_df(qd_filled)
+
+    # add lags to each block independently
     df_umidas_lagged = _add_lags_df(df_umidas, n_monthly_lags)
     df_q_lagged      = _add_lags_df(df_q, n_qd_lags)
-    X_base           = df_umidas_lagged.join(df_q_lagged, how="inner")
-    gdp_lags         = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_gdp_lags)
-    X                = X_base.join(gdp_lags, how="left")
-    X, y             = _finalise_from_cut(X, gdp_actual)
+
+    # use left join so we keep all U‑MIDAS quarters
+    X_base = df_umidas_lagged.join(df_q_lagged, how="left")
+
+    # add GDP lags
+    gdp_lags = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_gdp_lags)
+    X        = X_base.join(gdp_lags, how="left")
+
+    # finalise, then drop only where *both* X and y are unusable
+    X, y = _finalise_from_cut(X, gdp_actual)
+
+    # allow partial‑feature rows, but require y to be observed
+    valid = y.notna()
+    X = X[valid]
+    y = y[valid]
+
     print(f"X4 (U-MIDAS + lags): {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
+
 
 def build_X_AR_from_cut(
     gdp_cut: pd.Series,

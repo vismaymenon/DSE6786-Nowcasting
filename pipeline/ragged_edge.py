@@ -132,7 +132,6 @@ def fill_ragged_edge(client: Client, data_table: str, freq: str, date = None) ->
         if var not in df_filled.columns:
             print(f"  [{i}/{len(lag_dict)}] '{var}' skipped (not in DataFrame)")
             continue
-        print(f"  [{i}/{len(lag_dict)}] Filling '{var}' with AR({p})")
         df_filled[var] = _fill_series(df_filled[var], p)
 
     df_filled = df_filled.fillna(0)
@@ -160,10 +159,8 @@ def fill_ragged_edge_until(QD, MD, cutoff_date):
 
     for i, (var, p) in enumerate(lag_dict.items(), 1):
         if var in QD_filled.columns:
-            print(f"  [{i}/{len(lag_dict)}] Filling '{var}' in QD with AR({p})")
             QD_filled[var] = _fill_series(QD_filled[var], p)
         elif var in MD_filled.columns:
-            print(f"  [{i}/{len(lag_dict)}] Filling '{var}' in MD with AR({p})")
             MD_filled[var] = _fill_series(MD_filled[var], p)
         else:
             print(f"  [{i}/{len(lag_dict)}] '{var}' skipped (not in QD or MD)")
