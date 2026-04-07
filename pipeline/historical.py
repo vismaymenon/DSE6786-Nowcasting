@@ -71,12 +71,12 @@ def historical_run(supabase, date):
         models_full = [
             ("AR_Benchmark",        nowcast_single(ar_model_nowcast, X_ar, y_ar, gdp),  nowcast_single_latest(ar_model_nowcast, X_ar, y_ar, gdp, model_name="AR_Benchmark", client=supabase)),
             ("RF_Benchmark",        nowcast_single(randomForest, X_rf_bench, y_rf_bench, gdp),  nowcast_single_latest(randomForest, X_rf_bench, y_rf_bench, gdp, model_name="RF_Benchmark", client=supabase))
-            # ("RF_Average",          nowcast_single(randomForest,  X2, y2, gdp),  nowcast_single_latest(randomForest,  X2, y2, gdp, model_name="RF_Average",         client=supabase)),
-            # ("RF_UMIDAS",           nowcast_single(randomForest,  X4, y4, gdp),  nowcast_single_latest(randomForest,  X4, y4, gdp, model_name="RF_UMIDAS",          client=supabase)),
-            # ("LASSO_Average",       nowcast_single(fit_lasso,          X1, y1, gdp),  nowcast_single_latest(fit_lasso,          X1, y1, gdp, model_name="LASSO_Average",      client=supabase)),
-            # ("LASSO_UMIDAS",        nowcast_single(fit_lasso,          X3, y3, gdp),  nowcast_single_latest(fit_lasso,          X3, y3, gdp, model_name="LASSO_UMIDAS",       client=supabase)),
-            # ("LASSO_Lags_Average",  nowcast_single(fit_lasso,          X2, y2, gdp),  nowcast_single_latest(fit_lasso,          X2, y2, gdp, model_name="LASSO_Lags_Average", client=supabase)),
-            # ("LASSO_Lags_UMIDAS",   nowcast_single(fit_lasso,          X4, y4, gdp),  nowcast_single_latest(fit_lasso,          X4, y4, gdp, model_name="LASSO_Lags_UMIDAS",   client=supabase)),
+            ("RF_Average",          nowcast_single(randomForest,  X2, y2, gdp),  nowcast_single_latest(randomForest,  X2, y2, gdp, model_name="RF_Average",         client=supabase)),
+            ("RF_UMIDAS",           nowcast_single(randomForest,  X4, y4, gdp),  nowcast_single_latest(randomForest,  X4, y4, gdp, model_name="RF_UMIDAS",          client=supabase)),
+            ("LASSO_Average",       nowcast_single(fit_lasso,          X1, y1, gdp),  nowcast_single_latest(fit_lasso,          X1, y1, gdp, model_name="LASSO_Average",      client=supabase)),
+            ("LASSO_UMIDAS",        nowcast_single(fit_lasso,          X3, y3, gdp),  nowcast_single_latest(fit_lasso,          X3, y3, gdp, model_name="LASSO_UMIDAS",       client=supabase)),
+            ("LASSO_Lags_Average",  nowcast_single(fit_lasso,          X2, y2, gdp),  nowcast_single_latest(fit_lasso,          X2, y2, gdp, model_name="LASSO_Lags_Average", client=supabase)),
+            ("LASSO_Lags_UMIDAS",   nowcast_single(fit_lasso,          X4, y4, gdp),  nowcast_single_latest(fit_lasso,          X4, y4, gdp, model_name="LASSO_Lags_UMIDAS",   client=supabase)),
         ]
 
     push_results_to_supabase(supabase, models_full, run_date=date)

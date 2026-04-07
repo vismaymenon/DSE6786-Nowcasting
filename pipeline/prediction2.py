@@ -1,22 +1,45 @@
-from pipeline.models.rf import randomForest
-from pipeline.models.lasso import fit_lasso
-
-from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data
-from database.client import get_backend_client
-
 import pandas as pd
 import numpy as np
-
 from database.client import get_backend_client
+from pipeline.models.AR_benchmark import ar_model_nowcast
+from pipeline.models.rf import randomForest
+from pipeline.models.lasso import fit_lasso
+from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data, build_X_AR, build_X_RF_bench
 
-def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame) -> pd.DataFrame:
+def assign_version_prev(run_date):
+    return (run_date.month - 1) % 3 + 4
+
+def assign_version_latest(run_date):
+    return (run_date.month - 1) % 3 + 1
+
+def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str, client) -> pd.DataFrame:
     """
     Wraps a nowcast model to produce a single prediction for gdp.index[-2].
+    CI is calculated using RMSE fetched from the evaluation table.
     """
     target_idx = gdp.index[-2]
-
-    # Calculate train_size: years since 1960-09-01 minus 100
     train_size = 166
+
+    run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
+    last_day_of_month = (pd.Timestamp(run_date) + pd.offsets.MonthEnd(0)).date()
+    if run_date != last_day_of_month:
+        run_date = (pd.Timestamp(run_date) - pd.offsets.MonthEnd(1)).date()
+
+    version = assign_version_prev(run_date)
+
+    # Fetch RMSE from evaluation table
+    rmse_response = (
+        client.table("rmse")
+        .select(model_name)
+        .eq("version", version)
+        .limit(1)
+        .execute()
+    )
+
+    if not rmse_response.data:
+        raise ValueError(f"No RMSE found in evaluation table for model '{model_name}'.")
+
+    rmse = float(rmse_response.data[0][model_name])
 
     # Get integer position of target_idx in X
     target_pos = X.index.get_loc(target_idx)
@@ -27,33 +50,48 @@ def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame) -> p
     y_window = y.iloc[window_start : target_pos + 1]
 
     # Run model — last row of X_window is the test point
-    _, y_train_actual, y_train_predicted, _, y_test_actual, y_test_predicted = model(X_window, y_window).values()
-    std_error = np.std(y_train_actual - y_train_predicted)
+    _, _, _, _, y_test_actual, y_test_predicted = model(X_window, y_window).values()
 
     return pd.DataFrame(
         index=[target_idx],
         data={
-            "quarter": pd.Period(target_idx, freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date(),
+            "version":       version,
+            "quarter":       pd.Period(target_idx, freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date(),
             "y_true":        float(y_test_actual),
             "y_hat":         float(y_test_predicted),
-            "pred_50_lower": float(y_test_predicted) - 0.674 * std_error,
-            "pred_50_upper": float(y_test_predicted) + 0.674 * std_error,
-            "pred_80_lower": float(y_test_predicted) - 1.282 * std_error,
-            "pred_80_upper": float(y_test_predicted) + 1.282 * std_error,
+            "pred_50_lower": float(y_test_predicted) - 0.674 * rmse,
+            "pred_50_upper": float(y_test_predicted) + 0.674 * rmse,
+            "pred_80_lower": float(y_test_predicted) - 1.282 * rmse,
+            "pred_80_upper": float(y_test_predicted) + 1.282 * rmse,
         }
     )
-
 
 def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str, client) -> pd.DataFrame:
     """
     Wraps a nowcast model to produce a single prediction for gdp.index[-1].
     If gdp.index[-2] is NA, fetches the latest nowcast for that quarter from Supabase
     and uses it to fill in the missing value before building the training window.
+    CI is calculated using RMSE fetched from the evaluation table.
     """
     target_idx = gdp.index[-1]
     prev_idx   = gdp.index[-2]
-
     train_size = 166
+
+    version = assign_version_latest(pd.Timestamp.today().date())
+
+    # Fetch RMSE from evaluation table
+    rmse_response = (
+        client.table("rmse")
+        .select(model_name)
+        .eq("version", version)
+        .limit(1)
+        .execute()
+    )
+
+    if not rmse_response.data:
+        raise ValueError(f"No RMSE found in evaluation table for model '{model_name}'.")
+
+    rmse = float(rmse_response.data[0][model_name])
 
     # Fill in gdp.index[-2] if it is NA
     y_filled = y.copy()
@@ -90,71 +128,21 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
     y_window = y_filled.iloc[window_start : target_pos + 1]
 
     # Run model — last row of X_window is the test point
-    _, y_train_actual, y_train_predicted, _, y_test_actual, y_test_predicted = model(X_window, y_window).values()
-    std_error = np.std(y_train_actual - y_train_predicted)
+    _, _, _, _, y_test_actual, y_test_predicted = model(X_window, y_window).values()
 
     return pd.DataFrame(
         index=[target_idx],
         data={
+            "version":       version,
             "quarter":       pd.Period(target_idx, freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date(),
             "y_true":        float(y_test_actual),
             "y_hat":         float(y_test_predicted),
-            "pred_50_lower": float(y_test_predicted) - 0.674 * std_error,
-            "pred_50_upper": float(y_test_predicted) + 0.674 * std_error,
-            "pred_80_lower": float(y_test_predicted) - 1.282 * std_error,
-            "pred_80_upper": float(y_test_predicted) + 1.282 * std_error,
+            "pred_50_lower": float(y_test_predicted) - 0.674 * rmse,
+            "pred_50_upper": float(y_test_predicted) + 0.674 * rmse,
+            "pred_80_lower": float(y_test_predicted) - 1.282 * rmse,
+            "pred_80_upper": float(y_test_predicted) + 1.282 * rmse,
         }
     )
-
-def run_models():
-    df_md, df_qd = load_filled_data()
-
-    supabase = get_backend_client()
-    raw = supabase.table("gdp").select("*").order("sasdate").execute()
-    gdp = pd.DataFrame(raw.data).set_index("sasdate")["GDPC1_t"]
-    print(gdp.tail(5))
-
-    X1, y1 = build_X1(df_md, df_qd)
-    X2, y2 = build_X2(df_md, df_qd, n_lags=4)
-    X3, y3 = build_X3(df_md, df_qd)
-    X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
-
-    print(y1.tail(5))
-    print(y2.tail(5))
-    print(y3.tail(5))
-    print(y4.tail(5))
-
-    print("\n=== Nowcast for previous quarter ===")
-
-    #ar_out = nowcast_single(autoregressive.run_ar_benchmark, X, y, gdp)
-    #rf_out = nowcast_single(rf_benchmark.run_rf_benchmark, X, y, gdp)
-    rf_avg_out = nowcast_single(randomForest, X2, y2, gdp)
-    rf_umidas_out = nowcast_single(randomForest, X4, y4, gdp)
-    lasso_out = nowcast_single(fit_lasso, X1, y1, gdp)
-    lasso_umidas_out = nowcast_single(fit_lasso, X3, y3, gdp)
-    lasso_lags_out = nowcast_single(fit_lasso, X2, y2, gdp)
-    lasso_umidas_lags_out = nowcast_single(fit_lasso, X4, y4, gdp)
-
-    print("\n=== Nowcast for latest quarter (with gdp.index[-2] filled from Supabase if needed) ===")
-
-    #ar_out = nowcast_single_latest(autoregressive.run_ar_benchmark, X, y, gdp)
-    #rf_out = nowcast_single_latest(rf_benchmark.run_rf_benchmark, X, y, gdp)
-    rf_avg_out_latest = nowcast_single_latest(randomForest, X2, y2, gdp, model_name = "RF_Average", client=supabase)
-    rf_umidas_out_latest = nowcast_single_latest(randomForest, X4, y4, gdp, model_name = "RF_UMIDAS", client=supabase)
-    lasso_out_latest = nowcast_single_latest(fit_lasso, X1, y1, gdp, model_name = "LASSO_Average", client=supabase)
-    lasso_umidas_out_latest = nowcast_single_latest(fit_lasso, X3, y3, gdp, model_name = "LASSO_UMIDAS", client=supabase)
-    lasso_lags_out_latest = nowcast_single_latest(fit_lasso, X2, y2, gdp, model_name = "LASSO_Lags_Average", client=supabase)
-    lasso_umidas_lags_out_latest = nowcast_single_latest(fit_lasso, X4, y4, gdp, model_name = "LASSO_Lags_UMIDAS", client=supabase)
-
-    models =[("RF_Average", rf_avg_out, rf_avg_out_latest), 
-             ("RF_UMIDAS", rf_umidas_out, rf_umidas_out_latest), 
-             ("LASSO_UMIDAS", lasso_umidas_out, lasso_umidas_out_latest),
-             ("LASSO_Lags_UMIDAS", lasso_umidas_lags_out, lasso_umidas_lags_out_latest),
-             ("LASSO_Lags_Average", lasso_lags_out, lasso_lags_out_latest),
-             ("LASSO_Average", lasso_out, lasso_out_latest),
-             ]
-    
-    push_results_to_supabase(supabase, models)
 
 def push_results_to_supabase(client, models: list, run_date=None):
     run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
@@ -185,6 +173,8 @@ def push_results_to_supabase(client, models: list, run_date=None):
         if not records:
             print(f"No records to push for model '{model_name}', skipping.")
             continue
+
+        
 
         seen = set()
         unique_records = []
