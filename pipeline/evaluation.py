@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
-from load_data import load_main
+from pipeline.load_data import load_main
 import pipeline.poos as poos
 from pipeline.models.AR_benchmark import ar_model_nowcast
 from pipeline.models.rf import randomForest

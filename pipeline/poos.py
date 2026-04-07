@@ -6,14 +6,16 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 import matplotlib.pyplot as plt
 
-from output_x_poos import (
+from pipeline.output_x_poos import (
     build_X1_from_cut,
     build_X2_from_cut,
     build_X3_from_cut,
     build_X4_from_cut,
     build_X_AR_from_cut,
+    make_build_X
 )
-from ragged_edge import fill_ragged_edge_until
+from pipeline.ragged_edge import fill_ragged_edge_until
+from database.client import get_backend_client
 
 # ── Global constants ─────────────────────────────────────────────────────────
 
@@ -50,73 +52,101 @@ def placeholder_model(X: pd.DataFrame, y: pd.Series) -> dict:
 
 # ── Cut-and-fill snapshot at prediction time ────────────────────────────────
 
-def cut_and_fill(
-    version: int,
-    q_predicted: pd.Timestamp,
-    QD_t: pd.DataFrame,
-    MD_t: pd.DataFrame,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
-    """
-    Cut QD / MD to what is available at prediction time, then fill ragged edge
-    up to q_predicted with AR(p) forecasts.
+def cut_and_fill(version: int,
+                 q_predicted: pd.Timestamp,
+                 QD_t: pd.DataFrame,
+                 MD_t: pd.DataFrame,
+                 gdp: pd.Series,
+                 model_name: str = "All_Model_Average",
+                 ):
 
-    Parameters
-    ----------
-    version     : 1–6, which month relative to q_predicted we stand at.
-    q_predicted : quarter being predicted (e.g. 2025-03-01 for 2025Q1).
-    QD_t        : full quarterly data (must contain 'sasdate').
-    MD_t        : full monthly data (must contain 'sasdate').
+    client = get_backend_client()   
 
-    Returns
-    -------
-    qd_filled   : quarterly data snapshot (filled) up to q_predicted.
-    md_filled   : monthly data snapshot (filled) up to q_predicted.
-    gdp_cutoff  : last GDP quarter available at prediction time.
-    """
-    # Ensure datetime
-    QD_t = QD_t.copy()
-    MD_t = MD_t.copy()
-    QD_t["sasdate"] = pd.to_datetime(QD_t["sasdate"], errors="coerce")
-    MD_t["sasdate"] = pd.to_datetime(MD_t["sasdate"], errors="coerce")
-
-    # q_predicted is last month of the quarter; q_start is first month
     q_start    = q_predicted - relativedelta(months=2)
     prev_q_end = q_start - relativedelta(months=1)
 
     version_cutoffs = {
-        # version: (qd_cutoff,                           md_cutoff,                           gdp_cutoff)
-        1: (prev_q_end - relativedelta(months=3), prev_q_end - relativedelta(months=2), prev_q_end - relativedelta(months=3)),
-        2: (prev_q_end - relativedelta(months=3), prev_q_end - relativedelta(months=1), prev_q_end - relativedelta(months=3)),
-        3: (prev_q_end,                           prev_q_end,                           prev_q_end),
-        4: (prev_q_end,                           q_start,                              prev_q_end),
-        5: (prev_q_end,                           q_start + relativedelta(months=1),    prev_q_end),
-        6: (q_predicted,                          q_predicted,                          prev_q_end),
+        1: (prev_q_end - relativedelta(months=3),  prev_q_end - relativedelta(months=2), prev_q_end - relativedelta(months=3)),
+        2: (prev_q_end - relativedelta(months=3),  prev_q_end - relativedelta(months=1), prev_q_end - relativedelta(months=3)),
+        3: (prev_q_end,                            prev_q_end,                            prev_q_end),
+        4: (prev_q_end,                            q_start,                               prev_q_end),
+        5: (prev_q_end,                            q_start + relativedelta(months=1),     prev_q_end),
+        6: (q_predicted,                           q_predicted,                           prev_q_end),
     }
 
     qd_cutoff, md_cutoff, gdp_cutoff = version_cutoffs[version]
 
-    print(
-        f"Version {version} | Predicting {q_predicted.date()} | "
-        f"QD until {qd_cutoff.date()} | "
-        f"MD until {md_cutoff.date()} | "
-        f"GDP until {gdp_cutoff.date()}"
-    )
+    print(f"Version {version} | Predicting: {q_predicted.date()} | "
+          f"QD until: {qd_cutoff.date()} | "
+          f"MD until: {md_cutoff.date()} | "
+          f"GDP until: {gdp_cutoff.date()}")
 
     QD_cut = QD_t[QD_t["sasdate"] <= pd.Timestamp(qd_cutoff)].copy()
     MD_cut = MD_t[MD_t["sasdate"] <= pd.Timestamp(md_cutoff)].copy()
 
-    qd_filled, md_filled = fill_ragged_edge_until(
-        QD_cut, MD_cut, cutoff_date=q_predicted
+    qd_filled, md_filled = fill_ragged_edge_until(QD_cut, MD_cut, cutoff_date=q_predicted)
+
+    # ── Cut GDP at gdp_cutoff, then fill gap up to prev_q_end with nowcasts ──
+    gdp_cut = gdp[gdp.index <= pd.Timestamp(gdp_cutoff)].copy()
+
+    quarters_to_fill = pd.date_range(
+        start=gdp_cutoff + relativedelta(months=3),
+        end=prev_q_end,
+        freq="QS-DEC",
     )
 
-    return qd_filled, md_filled, pd.Timestamp(gdp_cutoff)
+    if len(quarters_to_fill) > 0:
+        quarter_date_strs = [
+            pd.Period(q, freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date().isoformat()
+            for q in quarters_to_fill
+        ]
+
+        response = (
+            client.table("model_forecasts")
+            .select("quarter_date, nowcast, run_date")
+            .eq("model_name", model_name)
+            .in_("quarter_date", quarter_date_strs)
+            .order("run_date", desc=True)
+            .execute()
+        )
+
+        if not response.data:
+            print(f"  Warning: no forecasts found to fill GDP gap — leaving as NaN.")
+        else:
+            fetched = (
+                pd.DataFrame(response.data)
+                .sort_values("run_date", ascending=False)
+                .drop_duplicates(subset="quarter_date")
+                .set_index("quarter_date")
+            )
+
+            for q, q_date_str in zip(quarters_to_fill, quarter_date_strs):
+                if q_date_str in fetched.index:
+                    nowcast = float(fetched.loc[q_date_str, "nowcast"])
+                    gdp_cut.loc[q] = nowcast
+                    print(f"  Filled GDP at {q.date()} with nowcast: {nowcast:.4f}")
+                else:
+                    print(f"  Warning: no forecast found for {q.date()} — leaving as NaN.")
+    
+    if len(quarters_to_fill) > 0:
+        nan_quarters = [
+            q for q in quarters_to_fill
+            if q not in gdp_cut.index or pd.isna(gdp_cut.loc[q])
+        ]
+        if nan_quarters:
+            gdp_mean = float(gdp_cut.dropna().mean())
+            for q in nan_quarters:
+                gdp_cut.loc[q] = gdp_mean
+                print(f"  Safeguard: filled GDP at {q.date()} with mean ({gdp_mean:.4f}) — no nowcast available.")
+    
+    return qd_filled, md_filled, gdp_cut
 
 
 # ── POOS validation loop ─────────────────────────────────────────────────────
 
 def poos_validation(
     method: Callable,
-    buildX: Callable,
+    buildname: str,
     QD_t: pd.DataFrame,
     MD_t: pd.DataFrame,
     y_full: pd.Series,
@@ -151,15 +181,16 @@ def poos_validation(
             q_predicted=pd.Timestamp(q_predicted),
             QD_t=QD_t,
             MD_t=MD_t,
+            gdp=y_full
         )
 
         # 2. Build features from filled snapshot
-        y_cut = y_full[y_full.index <= gdp_cutoff]
+        buildfn = make_build_X(buildname)
 
-        X, y = buildX(
-            qd_filled=qd_filled,
-            md_filled=md_filled,
-            gdp_cut=y_cut,
+        X, y = buildfn(
+            qd=qd_filled,
+            md=md_filled,
+            gdp_cut=gdp_cutoff,
             gdp_actual=y_full,
         )
 
@@ -373,7 +404,7 @@ if __name__ == "__main__":
 
     # Smoke-test cut_and_fill
     filled_qd, filled_md, gdp_filled = cut_and_fill(
-        version=3,
+        version=4,
         q_predicted=pd.Timestamp("2025-12-01"),
         QD_t=qd,
         MD_t=md,
@@ -381,10 +412,10 @@ if __name__ == "__main__":
     )
     print("QD tail:"); print(filled_qd.tail())
     print("MD tail:"); print(filled_md.tail())
-    print(f"GDP cutoff: {gdp_filled.date()}")
+    print("GDP tail:"); print(gdp_filled.tail())
 
     buildX = make_build_X("X_AR")
-    X, y = buildX(filled_qd, filled_md, gdp_cut, gdp_df["GDPC1_t"])
+    X, y = buildX(filled_qd, filled_md, gdp_filled, gdp_df["GDPC1_t"])
 
     print("Feature matrix tail:"); print(X.tail())
     print("Target series tail:"); print(y.tail())
