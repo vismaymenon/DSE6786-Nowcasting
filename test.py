@@ -6,7 +6,7 @@ from pipeline.load_data import load_main
 import pandas as pd
 from pipeline.evaluation_table_hist import push_forecasts_to_evaluation, calculate_and_upsert_rmse, calculate_mean_rmse_by_model
 from pipeline.ci_update import update_ci_columns
-from pipeline.prediction import run_all_nowcasts, compute_and_push_model_average
+from pipeline.prediction import prediction_pipeline
 from pipeline.dm_test import main as run_dm_test
 
 
@@ -23,20 +23,7 @@ def run(run_date = None):
     upsert_table(supabase, "filled_qd", df_filled_qd)
     fill_missing_gdp_quarters(supabase)
 
-    gdp_response = supabase.table("gdp").select("sasdate, GDPC1_t").execute()
-    gdp_response = get_backend_client().table("gdp").select("sasdate, GDPC1_t").order("sasdate", desc=False).execute()
-    gdp_df = pd.DataFrame(gdp_response.data)
-    gdp_df["sasdate"] = pd.to_datetime(gdp_df["sasdate"])
-    gdp_df = gdp_df.set_index("sasdate")
-
-
-    quarter_dates = [
-        pd.Period(gdp_df.index[-2], freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date().isoformat(),
-        pd.Period(gdp_df.index[-1], freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date().isoformat(),
-    ]
-
-    run_all_nowcasts(gdp_df, supabase, run_date = pd.to_datetime(run_date) if run_date else None)
-    compute_and_push_model_average(supabase, quarter_dates)
+    prediction_pipeline(run_date=pd.to_datetime(run_date) if run_date else None)
 
     push_forecasts_to_evaluation(supabase)
     calculate_and_upsert_rmse(supabase)

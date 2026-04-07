@@ -299,7 +299,7 @@ def run_all_nowcasts(
         _push_to_supabase(result, model_name, run_date, client, push_evaluation=False)
         print(f"    → {result['y_hat'].iloc[0]:.4f}")
 
-if __name__ == "__main__":
+def prediction_pipeline(run_date=None):
     df_md, df_qd = load_filled_data()
     X_ar , y_ar = build_X_AR()
     X1, y1 = build_X1(df_md, df_qd)
@@ -307,6 +307,7 @@ if __name__ == "__main__":
     X3, y3 = build_X3(df_md, df_qd)
     X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
 
+    global MODEL_REGISTRY
     MODEL_REGISTRY: dict[str, dict] = {
         "AR_Benchmark": {
             "model": ar_model_nowcast,
