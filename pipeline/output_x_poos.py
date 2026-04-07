@@ -15,36 +15,20 @@ def _average_monthly_to_quarterly_from_df(md_filled: pd.DataFrame) -> pd.DataFra
 
 
 def _umidas_monthly_to_quarterly_from_df(md_filled: pd.DataFrame) -> pd.DataFrame:
-    """
-    U-MIDAS: expands each monthly variable into 3 columns (_m1, _m2, _m3)
-    preserving within-quarter dynamics.
-    """
-    md = md_filled.copy()
-    md["sasdate"] = pd.to_datetime(md["sasdate"])
-    md["quarter"] = (
-        md["sasdate"]
-        .dt.to_period("Q")
-        .dt.to_timestamp(how="end")
-        .dt.to_period("M")
-        .dt.to_timestamp()
+    df = md_filled.copy().sort_values("sasdate").reset_index(drop=True)
+    df["sasdate"] = pd.to_datetime(df["sasdate"])
+    df["qtr_label"] = (
+        df["sasdate"].dt.to_period("Q").dt.start_time
+        + pd.DateOffset(months=2)
     )
-    md["month_in_q"] = md["sasdate"].dt.to_period("Q").apply(
-        lambda p: md.loc[md["sasdate"].dt.to_period("Q") == p, "sasdate"].rank(method="first").astype(int)
-    )
-    # simpler: use position within quarter
-    md["month_in_q"] = md.groupby("quarter")["sasdate"].rank(method="first").astype(int)
-
-    feature_cols = [c for c in md.columns if c not in ("sasdate", "quarter", "month_in_q")]
-    frames = []
-    for m in [1, 2, 3]:
-        slice_ = (
-            md[md["month_in_q"] == m]
-            .set_index("quarter")[feature_cols]
-            .rename(columns={c: f"{c}_m{m}" for c in feature_cols})
-        )
-        frames.append(slice_)
-
-    return pd.concat(frames, axis=1).sort_index()
+    df["month_pos"] = df.groupby("qtr_label").cumcount() + 1
+    feature_cols = [c for c in df.columns
+                    if c not in ("sasdate", "qtr_label", "month_pos",
+                                 "covid_crash", "covid_recover")]
+    df_pivot = df.pivot(index="qtr_label", columns="month_pos", values=feature_cols)
+    df_pivot.columns = [f"{col}_m{pos}" for col, pos in df_pivot.columns]
+    df_pivot.index.name = "sasdate"
+    return df_pivot
 
 
 def _prep_qd_from_df(qd_filled: pd.DataFrame) -> pd.DataFrame:
@@ -54,13 +38,14 @@ def _prep_qd_from_df(qd_filled: pd.DataFrame) -> pd.DataFrame:
     return qd.set_index("sasdate")
 
 
-def _build_gdp_lags_from_cut(gdp_cut: pd.Series, n_lags: int = 4) -> pd.DataFrame:
-    """Builds GDP lag columns from the cut series."""
-    gdp_lags = pd.DataFrame(index=gdp_cut.index)
+def _build_gdp_lags_from_cut(gdp_cut: pd.Series, index: pd.DatetimeIndex, n_lags: int = 4) -> pd.DataFrame:
+    """Builds GDP lag columns aligned to the given index."""
+    # reindex first to include target quarter, then shift
+    gdp_reindexed = gdp_cut.reindex(index)
+    gdp_lags = pd.DataFrame(index=index)
     for lag in range(1, n_lags + 1):
-        gdp_lags[f"gdp_lag_{lag}"] = gdp_cut.shift(lag)
+        gdp_lags[f"gdp_lag_{lag}"] = gdp_reindexed.shift(lag)
     return gdp_lags
-
 
 def _add_lags_df(df: pd.DataFrame, n_lags: int) -> pd.DataFrame:
     """Adds n quarterly lags of every column in df."""
@@ -76,9 +61,6 @@ def _finalise_from_cut(X: pd.DataFrame, gdp_actual: pd.Series) -> tuple:
     y = gdp_actual.reindex(X.index)
     return X, y
 
-
-# ── X1: averaged monthly + quarterly + GDP lags ──────────────────────────────
-
 def build_X1_from_cut(
     qd_filled: pd.DataFrame,
     md_filled: pd.DataFrame,
@@ -88,14 +70,13 @@ def build_X1_from_cut(
 ) -> tuple[pd.DataFrame, pd.Series]:
     df_avg     = _average_monthly_to_quarterly_from_df(md_filled)
     df_q       = _prep_qd_from_df(qd_filled)
-    gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, n_lags)
-    X          = df_avg.join(df_q, how="inner").join(gdp_lags, how="left")
+    X_base     = df_avg.join(df_q, how="inner")
+    gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_lags)
+    X          = X_base.join(gdp_lags, how="left")
     X, y       = _finalise_from_cut(X, gdp_actual)
     print(f"X1 (avg):            {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
-
-# ── X2: averaged monthly + quarterly + lags of all columns + GDP lags ────────
 
 def build_X2_from_cut(
     qd_filled: pd.DataFrame,
@@ -106,15 +87,13 @@ def build_X2_from_cut(
 ) -> tuple[pd.DataFrame, pd.Series]:
     df_avg     = _average_monthly_to_quarterly_from_df(md_filled)
     df_q       = _prep_qd_from_df(qd_filled)
-    qd1        = df_avg.join(df_q, how="inner")
-    gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, n_lags)
-    X          = _add_lags_df(qd1, n_lags).join(gdp_lags, how="left")
+    X_base     = _add_lags_df(df_avg.join(df_q, how="inner"), n_lags)
+    gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_lags)
+    X          = X_base.join(gdp_lags, how="left")
     X, y       = _finalise_from_cut(X, gdp_actual)
     print(f"X2 (avg + {n_lags} lags):     {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
-
-# ── X3: U-MIDAS monthly + quarterly + GDP lags ───────────────────────────────
 
 def build_X3_from_cut(
     qd_filled: pd.DataFrame,
@@ -125,14 +104,13 @@ def build_X3_from_cut(
 ) -> tuple[pd.DataFrame, pd.Series]:
     df_umidas  = _umidas_monthly_to_quarterly_from_df(md_filled)
     df_q       = _prep_qd_from_df(qd_filled)
-    gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, n_lags)
-    X          = df_umidas.join(df_q, how="inner").join(gdp_lags, how="left")
+    X_base     = df_umidas.join(df_q, how="inner")
+    gdp_lags   = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_lags)
+    X          = X_base.join(gdp_lags, how="left")
     X, y       = _finalise_from_cut(X, gdp_actual)
     print(f"X3 (U-MIDAS):        {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
-
-# ── X4: U-MIDAS + lags + quarterly + lags + GDP lags ────────────────────────
 
 def build_X4_from_cut(
     qd_filled: pd.DataFrame,
@@ -147,21 +125,23 @@ def build_X4_from_cut(
     df_q             = _prep_qd_from_df(qd_filled)
     df_umidas_lagged = _add_lags_df(df_umidas, n_monthly_lags)
     df_q_lagged      = _add_lags_df(df_q, n_qd_lags)
-    gdp_lags         = _build_gdp_lags_from_cut(gdp_cut, n_gdp_lags)
-    X                = df_umidas_lagged.join(df_q_lagged, how="inner").join(gdp_lags, how="left")
+    X_base           = df_umidas_lagged.join(df_q_lagged, how="inner")
+    gdp_lags         = _build_gdp_lags_from_cut(gdp_cut, X_base.index, n_gdp_lags)
+    X                = X_base.join(gdp_lags, how="left")
     X, y             = _finalise_from_cut(X, gdp_actual)
     print(f"X4 (U-MIDAS + lags): {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
-
-
-# ── X_AR: GDP lags only ───────────────────────────────────────────────────────
 
 def build_X_AR_from_cut(
     gdp_cut: pd.Series,
     gdp_actual: pd.Series,
     n_lags: int = 2,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    df = gdp_cut.rename("gdp_growth").to_frame()
+    target_date = gdp_cut.index[-1] + relativedelta(months=3)
+    full_index  = gdp_cut.index.append(pd.DatetimeIndex([target_date]))
+
+    gdp_reindexed = gdp_cut.reindex(full_index)
+    df = gdp_reindexed.rename("gdp_growth").to_frame()
     for lag in range(1, n_lags + 1):
         df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
     lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
@@ -171,15 +151,18 @@ def build_X_AR_from_cut(
     print(f"X_AR ({n_lags} lags):          {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
-
-# ── X_RF_bench: GDP lags only (4 lags) ───────────────────────────────────────
+from dateutil.relativedelta import relativedelta
 
 def build_X_RF_bench_from_cut(
     gdp_cut: pd.Series,
     gdp_actual: pd.Series,
     n_lags: int = 4,
 ) -> tuple[pd.DataFrame, pd.Series]:
-    df = gdp_cut.rename("gdp_growth").to_frame()
+    target_date = gdp_cut.index[-1] + relativedelta(months=3)
+    full_index  = gdp_cut.index.append(pd.DatetimeIndex([target_date]))
+
+    gdp_reindexed = gdp_cut.reindex(full_index)
+    df = gdp_reindexed.rename("gdp_growth").to_frame()
     for lag in range(1, n_lags + 1):
         df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
     lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]

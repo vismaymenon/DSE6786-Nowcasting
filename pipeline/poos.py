@@ -4,8 +4,8 @@ from typing import Callable
 from datetime import date
 import os
 from dotenv import load_dotenv
-from output_x_poos import make_build_X
-from ragged_edge import fill_ragged_edge_until
+from pipeline.output_x_poos import make_build_X
+from pipeline.ragged_edge import fill_ragged_edge_until
 from database.client import get_backend_client
 
 # ── Global constants ────────────────────────────────────────────────────────────
@@ -308,16 +308,25 @@ if __name__ == "__main__":
 
     qd["sasdate"] = pd.to_datetime(qd["sasdate"], errors="coerce")
     md["sasdate"] = pd.to_datetime(md["sasdate"], errors="coerce")
+    gdp = get_backend_client().table("gdp").select("sasdate, GDPC1_t").execute()
+    gdp_df = pd.DataFrame(gdp.data)
+    gdp_df["sasdate"] = pd.to_datetime(gdp_df["sasdate"], errors="coerce")
+    gdp_df = gdp_df.set_index("sasdate")
 
     # Smoke-test cut_and_fill
-    filled_qd, filled_md, gdp_cutoff = cut_and_fill(
+    filled_qd, filled_md, gdp_cut = cut_and_fill(
         version=3,
         q_predicted=pd.Timestamp("2025-12-01"),
         QD_t=qd,
         MD_t=md,
+        gdp=gdp_df["GDPC1_t"]
     )
     print("QD tail:"); print(filled_qd.tail())
     print("MD tail:"); print(filled_md.tail())
-    print(f"GDP cutoff: {gdp_cutoff.date()}")
+    print("GDP tail:"); print(gdp_cut.tail())
 
-    
+    buildX = make_build_X("X_AR")
+    X, y = buildX(filled_qd, filled_md, gdp_cut, gdp_df["GDPC1_t"])
+
+    print("Feature matrix tail:"); print(X.tail())
+    print("Target series tail:"); print(y.tail())
