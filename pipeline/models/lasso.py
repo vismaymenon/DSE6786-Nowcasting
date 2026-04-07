@@ -38,7 +38,7 @@ def fit_lasso(df_X: pd.DataFrame, gdp: pd.Series) -> dict:
     # 4) Fit LASSO via hdmpy (no NaNs allowed)
     y_train_arr = y_train.values
 
-    model = hd.rlasso(X_train, y_train_arr, post=True, homoskedastic=True)
+    model = hd.rlasso(X_train, y_train, post=True, homoskedastic=False)
     coefs = np.nan_to_num(np.array(model.est["coefficients"]).flatten())
     coefs = coefs[1:]  # drop intercept
     intercept = float(np.array(model.est["intercept"]).flat[0])
