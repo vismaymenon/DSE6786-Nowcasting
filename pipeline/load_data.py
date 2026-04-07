@@ -151,19 +151,22 @@ def load_main(run_date=None):
     prev_month = (run_date - pd.DateOffset(months=1)).strftime("%Y-%m")
 
     try:
-        fred_md = save_df(add_covid_flags(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+        fred_md_transformed = drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series(f"https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/monthly/{prev_month}-md.csv", skiprows=[1])),
             get_fred_md_metadata()
-        ))), "../data", "fred_md")
-        print(f"Finished loading and transforming monthly data for {prev_month}.")
+        ))
 
-        fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+        fred_qd = drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series(f"https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/{prev_month}-qd.csv", skiprows=[1, 2])),
             get_fred_qd_metadata()
-        )), "../data", "fred_qd")
+        ))
+
+        fred_qd_X = save_df(add_covid_flags(drop_duplicate_columns(fred_md_transformed, fred_qd.iloc[:, 1:])).add_suffix('_qd'), "../data", "fred_qd_X")
         print(f"Finished loading and transforming quarterly data for {prev_month}.")
 
-        fred_qd_X = save_df(add_covid_flags(drop_duplicate_columns(fred_md, fred_qd.iloc[:, 1:])), "../data", "fred_qd_X")
+        fred_md = save_df(fred_md_transformed.add_suffix('_md'), "../data", "fred_md")
+        print(f"Finished loading and transforming monthly data for {prev_month}.")
+
         gdp = save_df(fred_qd.iloc[:, [0]]*400, "../data", "gdp")  
         
     except Exception as e:
