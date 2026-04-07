@@ -90,6 +90,20 @@ def fetch_evaluation_metrics(models: list[str]) -> dict[str, dict]:
     raise NotImplementedError("Replace with Supabase query")
 
 
+def fetch_dm_matrix(models: list[str]) -> dict[tuple[str, str], float | None]:
+    """
+    Fetch pairwise DM test statistics.
+
+    Supabase table: dm_statistics
+      - model_a  TEXT
+      - model_b  TEXT
+      - dm_stat  FLOAT
+
+    Returns: {(model_a, model_b): dm_stat} for all i≠j pairs; diagonal not included.
+    """
+    raise NotImplementedError("Replace with Supabase query")
+
+
 # =============================================================================
 # DUMMY DATA — delete this entire block when Supabase is connected,
 # and replace each get_dummy_* call in the server with the fetch_* equivalent.
@@ -172,8 +186,104 @@ def get_dummy_metrics(models: list[str]):
     return {m: _DUMMY_METRICS[m] for m in models if m in _DUMMY_METRICS}
 
 
+_DUMMY_DM_MATRIX = {
+    ("Combined model", "Model 1"): 0.12,
+    ("Combined model", "Model 2"): 0.24,
+    ("Model 1", "Model 2"):        0.35,
+}
+
+
+def get_dummy_dm_matrix(models: list[str]):
+    """Dummy DM matrix — replace with fetch_dm_matrix(models)."""
+    result = {}
+    for m1 in models:
+        for m2 in models:
+            if m1 == m2:
+                result[(m1, m2)] = None
+            else:
+                key = (m1, m2) if (m1, m2) in _DUMMY_DM_MATRIX else (m2, m1)
+                result[(m1, m2)] = _DUMMY_DM_MATRIX.get(key)
+    return result
+
+
 # =============================================================================
 # END DUMMY DATA
+# =============================================================================
+
+
+# =============================================================================
+# THEME — edit colours and fonts here
+# =============================================================================
+#
+# Each mode has the following keys:
+#   bg_page         — page / outermost background
+#   bg_card         — card body background
+#   bg_card_header  — card header strip background
+#   text_primary    — main body text
+#   text_secondary  — muted / label text
+#   accent          — buttons, active tabs, highlights (secondary accent colour)
+#   border          — card / input borders
+#   grid            — plot gridlines
+#   plot_bg         — plot area background (passed directly to Plotly)
+#   plot_paper      — plot paper background (passed directly to Plotly)
+#   plot_text       — axis labels / tick text colour in Plotly
+#
+# FONTS
+#   font_body       — applied to <body>; controls all UI text
+#   font_heading    — applied to h1–h3
+#
+# To load a Google Font, add a ui.tags.link() in app_ui and reference it here,
+# e.g. font_body = "'Inter', sans-serif"
+
+THEME = {
+    "light": {
+        # ── Backgrounds ──────────────────────────────────────────────────────
+        "bg_page":        "#f8f9fa",   # TODO: swap for your light page colour
+        "bg_card":        "#ffffff",   # TODO: swap for your light card colour
+        "bg_card_header": "#f1f3f5",   # TODO: swap for your light card header
+        # ── Text ─────────────────────────────────────────────────────────────
+        "text_primary":   "#212529",   # TODO: swap for your light primary text
+        "text_secondary": "#6c757d",   # TODO: swap for your light muted text
+        # ── Accent ───────────────────────────────────────────────────────────
+        "accent":         "#0d6efd",   # TODO: swap for your light accent colour
+        # ── Borders & grids ──────────────────────────────────────────────────
+        "border":         "#dee2e6",   # TODO: swap for your light border colour
+        "grid":           "#e9ecef",   # TODO: swap for your light plot grid
+        # ── Plotly surface colours ────────────────────────────────────────────
+        "plot_bg":        "#ffffff",
+        "plot_paper":     "#ffffff",
+        "plot_text":      "#212529",
+        # ── Fonts ─────────────────────────────────────────────────────────────
+        # TODO: replace with your chosen font stack, e.g. "'Inter', sans-serif"
+        "font_body":      "'Hanken Grotesk', sans-serif",
+        "font_heading":   "'Hanken Grotesk', sans-serif",
+    },
+    "dark": {
+        # ── Backgrounds ──────────────────────────────────────────────────────
+        "bg_page":        "#1a1d21",   # TODO: swap for your dark page colour
+        "bg_card":        "#2b2f35",   # TODO: swap for your dark card colour
+        "bg_card_header": "#22262c",   # TODO: swap for your dark card header
+        # ── Text ─────────────────────────────────────────────────────────────
+        "text_primary":   "#e9ecef",   # TODO: swap for your dark primary text
+        "text_secondary": "#adb5bd",   # TODO: swap for your dark muted text
+        # ── Accent ───────────────────────────────────────────────────────────
+        "accent":         "#4dabf7",   # TODO: swap for your dark accent colour
+        # ── Borders & grids ──────────────────────────────────────────────────
+        "border":         "#3d4249",   # TODO: swap for your dark border colour
+        "grid":           "#3d4249",   # TODO: swap for your dark plot grid
+        # ── Plotly surface colours ────────────────────────────────────────────
+        "plot_bg":        "#2b2f35",
+        "plot_paper":     "#2b2f35",
+        "plot_text":      "#e9ecef",
+        # ── Fonts ─────────────────────────────────────────────────────────────
+        # TODO: replace with your chosen font stack (can differ from light mode)
+        "font_body":      "'Hanken Grotesk', sans-serif",
+        "font_heading":   "'Hanken Grotesk', sans-serif",
+    },
+}
+
+# =============================================================================
+# END THEME
 # =============================================================================
 
 
@@ -217,12 +327,24 @@ def _btn_row(step: int):
     return ui.div(*buttons, style="margin-top: 1rem;")
 
 
+def _close_btn():
+    return ui.input_action_button(
+        "wizard_close", "×",
+        style=(
+            "position: absolute; top: 0.75rem; right: 0.75rem; "
+            "background: none; border: none; font-size: 1.25rem; "
+            "color: #666; cursor: pointer; padding: 0; line-height: 1;"
+        ),
+    )
+
+
 def _centered_modal(header: str, body: str | None, step: int):
     content = [ui.h3(header, style="margin-bottom: 1rem;")]
     if body:
         content.append(ui.p(body))
     content.append(_btn_row(step))
     return ui.div(
+        _close_btn(),
         *content,
         style=(
             "position: fixed; top: 50%; left: 50%; "
@@ -231,7 +353,7 @@ def _centered_modal(header: str, body: str | None, step: int):
             "min-width: 360px; max-width: 540px; "
             "box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), "
             "0 4px 30px rgba(0,0,0,0.4); "
-            "z-index: 1001; pointer-events: auto;"
+            "z-index: 1001; pointer-events: auto; position: fixed;"
         ),
     )
 
@@ -258,10 +380,11 @@ def _spotlight(selector: str, tooltip_pos: str, description: str, step: int):
     return ui.div(
         ui.tags.style(css),
         ui.div(
+            _close_btn(),
             ui.p(description, style="margin-bottom: 0.25rem;"),
             hint,
             _btn_row(step),
-            style=f"{_TOOLTIP_BASE} {tooltip_pos}",
+            style=f"{_TOOLTIP_BASE} {tooltip_pos} position: fixed;",
         ),
     )
 
@@ -339,8 +462,22 @@ historical_controls = ui.div(
 )
 
 app_ui = ui.page_fluid(
+    ui.tags.link(
+        rel="stylesheet",
+        href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,100..900;1,100..900&display=swap",
+    ),
+    ui.output_ui("theme_css"),
     ui.output_ui("wizard_ui"),
-    ui.h1("US GDP Nowcast"),
+    ui.output_ui("dm_overlay"),
+    ui.div(
+        ui.h1("US GDP Nowcast", style="margin: 0;"),
+        ui.div(
+            ui.output_ui("dark_mode_btn"),
+            ui.input_action_button("wizard_replay", "Play tutorial", style="margin-left: 1rem;"),
+            style="margin-left: auto; display: flex; align-items: center;",
+        ),
+        style="display: flex; align-items: center; margin-bottom: 1rem;",
+    ),
     ui.navset_tab(
         ui.nav_panel(
             "Nowcast",
@@ -361,6 +498,7 @@ app_ui = ui.page_fluid(
         id="main_tabs",
         selected="Nowcast",
     ),
+    style="padding: 2rem 3rem 0 3rem;",
 )
 
 
@@ -369,6 +507,79 @@ app_ui = ui.page_fluid(
 def server(input, output, session):
 
     wizard_step = reactive.value(1)
+    dm_overlay_visible = reactive.value(False)
+    is_dark = reactive.value(False)
+
+    # ── Theme CSS injection ───────────────────────────────────────────────────
+
+    @render.ui
+    def theme_css():
+        t = THEME["dark"] if is_dark.get() else THEME["light"]
+        css = f"""
+            body {{
+                background-color: {t['bg_page']} !important;
+                color: {t['text_primary']} !important;
+                font-family: {t['font_body']} !important;  /* ← body font */
+            }}
+            h1, h2, h3, h4, h5, h6 {{
+                font-family: {t['font_heading']} !important;  /* ← heading font */
+                font-weight: bold !important;
+                color: {t['text_primary']} !important;
+            }}
+            .card {{
+                background-color: {t['bg_card']} !important;
+                border-color: {t['border']} !important;
+                color: {t['text_primary']} !important;
+            }}
+            .card-header {{
+                background-color: {t['bg_card_header']} !important;
+                border-color: {t['border']} !important;
+                color: {t['text_primary']} !important;
+            }}
+            .nav-tabs {{
+                border-color: {t['border']} !important;
+            }}
+            .nav-tabs .nav-link {{
+                color: {t['text_secondary']} !important;
+            }}
+            .nav-tabs .nav-link.active {{
+                background-color: {t['bg_card']} !important;
+                border-color: {t['border']} !important;
+                color: {t['accent']} !important;
+            }}
+            label, .form-label, .shiny-input-container {{
+                color: {t['text_primary']} !important;
+            }}
+            .form-control, .form-select {{
+                background-color: {t['bg_card']} !important;
+                border-color: {t['border']} !important;
+                color: {t['text_primary']} !important;
+            }}
+            .btn-default, .btn-secondary {{
+                background-color: {t['bg_card_header']} !important;
+                border-color: {t['border']} !important;
+                color: {t['text_primary']} !important;
+            }}
+            /* ── Secondary accent: active/focus highlights ── */
+            .btn-primary, a {{
+                color: {t['accent']} !important;
+            }}
+            /* ── Tab content padding ── */
+            .tab-content > .tab-pane {{
+                padding-top: 1.25rem;
+            }}
+        """
+        return ui.tags.style(css)
+
+    @render.ui
+    def dark_mode_btn():
+        label = "View in light mode" if is_dark.get() else "View in dark mode"
+        return ui.input_action_button("toggle_dark_mode", label)
+
+    @reactive.effect
+    @reactive.event(input.toggle_dark_mode)
+    def _on_toggle_dark():
+        is_dark.set(not is_dark.get())
 
     # ── Wizard rendering ──────────────────────────────────────────────────────
 
@@ -460,9 +671,20 @@ def server(input, output, session):
         wizard_step.set(0)
 
     @reactive.effect
+    @reactive.event(input.wizard_close)
+    def _on_close():
+        wizard_step.set(0)
+
+    @reactive.effect
     @reactive.event(input.wizard_finish)
     def _on_finish():
         wizard_step.set(0)
+
+    @reactive.effect
+    @reactive.event(input.wizard_replay)
+    def _on_replay():
+        ui.update_navs("main_tabs", selected="Nowcast")
+        wizard_step.set(1)
 
     # Advance from step 6 when the user clicks the Historical Data tab
     @reactive.effect
@@ -470,6 +692,119 @@ def server(input, output, session):
     def _tab_advance():
         if wizard_step.get() == 6 and input.main_tabs() == "Historical Data":
             wizard_step.set(7)
+
+    # ── DM overlay show/hide ──────────────────────────────────────────────────
+
+    @reactive.effect
+    @reactive.event(input.view_dm_stats)
+    def _show_dm_overlay():
+        dm_overlay_visible.set(True)
+
+    @reactive.effect
+    @reactive.event(input.close_dm_overlay)
+    def _hide_dm_overlay():
+        dm_overlay_visible.set(False)
+
+    @render.ui
+    def dm_overlay():
+        if not dm_overlay_visible.get():
+            return ui.div()
+
+        selected_models = input.hist_models() or []
+        t = THEME["dark"] if is_dark.get() else THEME["light"]
+
+        # TODO: swap get_dummy_dm_matrix → fetch_dm_matrix when Supabase ready
+        matrix = get_dummy_dm_matrix(selected_models)
+        # TODO: swap get_dummy_metrics → fetch_evaluation_metrics when Supabase ready
+        metrics = get_dummy_metrics(selected_models)
+
+        # Build DM matrix table
+        cell_style = (
+            f"border: 1px solid {t['border']}; padding: 1rem 1.5rem; "
+            "text-align: center; vertical-align: middle; min-width: 90px;"
+        )
+        diag_style = cell_style + f" background-color: {t['bg_card_header']};"
+        header_style = (
+            f"border: 1px solid {t['border']}; padding: 0.5rem 1rem; "
+            f"text-align: center; font-weight: normal; color: {t['text_primary']};"
+        )
+
+        header_row_cells = [ui.tags.th("", style=header_style)]
+        for m in selected_models:
+            header_row_cells.append(ui.tags.th(m, style=header_style))
+
+        data_rows = []
+        for m1 in selected_models:
+            row_cells = [ui.tags.th(m1, style=header_style)]
+            for m2 in selected_models:
+                val = matrix.get((m1, m2))
+                if val is None:
+                    row_cells.append(ui.tags.td("", style=diag_style))
+                else:
+                    row_cells.append(ui.tags.td(f"{val:.2f}", style=cell_style))
+            data_rows.append(ui.tags.tr(*row_cells))
+
+        dm_table = ui.tags.table(
+            ui.tags.tr(*header_row_cells),
+            *data_rows,
+            style="border-collapse: collapse;",
+        )
+
+        # RMSE column
+        rmse_lines = [ui.tags.u(ui.strong("RMSE"))]
+        for model in selected_models:
+            if model in metrics:
+                rmse_lines.append(ui.p(f"{model}: {metrics[model]['rmse']:.1f}"))
+
+        return ui.div(
+            # Backdrop
+            ui.div(style=(
+                "position: fixed; inset: 0; background: rgba(0,0,0,0.6); "
+                "z-index: 1100;"
+            )),
+            # Panel
+            ui.div(
+                # Header row
+                ui.div(
+                    ui.h3("DM Statistics", style="margin: 0;"),
+                    ui.input_action_button(
+                        "close_dm_overlay", "×",
+                        style=(
+                            "background: none; border: none; font-size: 1.5rem; "
+                            f"color: {t['text_primary']}; cursor: pointer; "
+                            "padding: 0; line-height: 1;"
+                        ),
+                    ),
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;",
+                ),
+                ui.p(
+                    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+                    "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+                    style=f"color: {t['text_secondary']}; margin-bottom: 1.25rem;",
+                ),
+                # Two columns
+                ui.div(
+                    ui.div(dm_table, style="flex: 1; overflow-x: auto;"),
+                    ui.div(
+                        *rmse_lines,
+                        style=(
+                            f"min-width: 160px; padding-left: 2rem; "
+                            f"border-left: 1px solid {t['border']}; margin-left: 1.5rem;"
+                        ),
+                    ),
+                    style="display: flex; align-items: flex-start;",
+                ),
+                style=(
+                    f"position: fixed; top: 50%; left: 50%; "
+                    "transform: translate(-50%, -50%); "
+                    f"background: {t['bg_card']}; color: {t['text_primary']}; "
+                    "padding: 2rem; border-radius: 10px; "
+                    "z-index: 1101; pointer-events: auto; "
+                    "min-width: 480px; max-width: 85vw; max-height: 85vh; overflow-y: auto; "
+                    f"box-shadow: 0 4px 30px rgba(0,0,0,0.4);"
+                ),
+            ),
+        )
 
     # ── Keep CI dropdown in sync with selected models ─────────────────────────
 
@@ -488,6 +823,7 @@ def server(input, output, session):
         quarter = input.quarter()
         selected_models = input.nowcast_models() or []
         ci_model = input.ci_model()
+        t = THEME["dark"] if is_dark.get() else THEME["light"]
 
         # TODO: swap get_dummy_nowcast_data → fetch_nowcast_data when Supabase ready
         data, x_labels = get_dummy_nowcast_data(quarter)
@@ -526,12 +862,13 @@ def server(input, output, session):
 
         fig.update_layout(
             yaxis_title="% annual GDP growth",
-            plot_bgcolor="white",
-            paper_bgcolor="white",
+            plot_bgcolor=t["plot_bg"],
+            paper_bgcolor=t["plot_paper"],
+            font=dict(color=t["plot_text"]),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             margin=dict(l=50, r=20, t=60, b=40),
-            xaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
+            xaxis=dict(showgrid=True, gridcolor=t["grid"]),
+            yaxis=dict(showgrid=True, gridcolor=t["grid"])
         )
         return fig
 
@@ -544,6 +881,7 @@ def server(input, output, session):
         end_date   = date_range[1] if date_range else date(2022, 1, 1)
         selected_models = input.hist_models() or []
         flash_month = int(input.flash_month())
+        t = THEME["dark"] if is_dark.get() else THEME["light"]
 
         # TODO: swap get_dummy_historical_data → fetch_historical_data when Supabase ready
         quarters, actual, predictions = get_dummy_historical_data(
@@ -553,13 +891,14 @@ def server(input, output, session):
         fig = go.Figure()
 
         # Actual GDP — dotted line
+        actual_line_color = t["text_primary"]
         fig.add_trace(
             go.Scatter(
                 x=quarters,
                 y=actual,
                 mode="lines+markers",
                 name="Actual",
-                line=dict(color="#000000", width=2, dash="dot"),
+                line=dict(color=actual_line_color, width=2, dash="dot"),
             )
         )
 
@@ -578,12 +917,13 @@ def server(input, output, session):
 
         fig.update_layout(
             yaxis_title="% annual GDP growth",
-            plot_bgcolor="white",
-            paper_bgcolor="white",
+            plot_bgcolor=t["plot_bg"],
+            paper_bgcolor=t["plot_paper"],
+            font=dict(color=t["plot_text"]),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             margin=dict(l=50, r=20, t=60, b=40),
-            xaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
+            xaxis=dict(showgrid=True, gridcolor=t["grid"]),
+            yaxis=dict(showgrid=True, gridcolor=t["grid"])
         )
         return fig
 
@@ -598,19 +938,25 @@ def server(input, output, session):
         # TODO: swap get_dummy_metrics → fetch_evaluation_metrics when Supabase ready
         metrics = get_dummy_metrics(selected_models)
 
-        rows = []
+        rmse_lines = []
         for model in selected_models:
             if model not in metrics:
                 continue
             m = metrics[model]
-            rows.append(
-                ui.div(
-                    ui.tags.u(ui.strong(model.upper())),
-                    ui.p(f"RMSE: {m['rmse']:.1f}"),
-                    ui.p(f"DM Test Statistic: {m['dm_statistic']:.1f}"),
+            rmse_lines.append(ui.div(f"{model}: {m['rmse']:.1f}"))
+
+        if not rmse_lines:
+            return ui.p("No metrics available.")
+
+        content = [ui.tags.u(ui.strong("RMSE")), *rmse_lines]
+        if len(selected_models) > 1:
+            content.append(
+                ui.input_action_button(
+                    "view_dm_stats", "View DM statistics",
+                    style="margin-top: 0.75rem; width: 100%;",
                 )
             )
-        return ui.div(*rows) if rows else ui.p("No metrics available.")
+        return ui.div(*content)
 
 
 app = App(app_ui, server)
