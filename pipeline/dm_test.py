@@ -11,13 +11,15 @@ load_dotenv()
 
 def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
     """
-    Runs pairwise DM tests and returns a winner-first results table.
+    Runs pairwise DM tests ONLY for models with matching versions.
+    Returns a winner-first table with a dedicated version column.
     """
     df = df.copy()
-    # Create unique identifier: 'AR_Benchmark_v1'
+    
+    # Create the unique ID (e.g., 'AR_Benchmark_v1')
     df['id'] = df['model_name'] + "_v" + df['version'].astype(str)
 
-    # 1. Pivot to align all models by time_col
+    # 1. Pivot to align all models by time
     predictions = df.pivot_table(
         index=time_col,
         columns='id',
@@ -25,7 +27,7 @@ def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
         aggfunc='first'
     )
 
-    # 2. Extract aligned actuals (using gdp_actual from your table)
+    # 2. Extract aligned actuals
     actuals = (
         df.drop_duplicates(subset=[time_col])
         .set_index(time_col)['gdp_actual']
@@ -37,6 +39,15 @@ def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
 
     # 3. Iterate through unique pairs
     for id_a, id_b in combinations(unique_ids, 2):
+        
+        # Split by '_v' and grab the last element (the number)
+        ver_a = int(id_a.split('_v')[-1])
+        ver_b = int(id_b.split('_v')[-1])
+
+        # FILTER: Only compare if versions match
+        if ver_a != ver_b:
+            continue
+
         yhat_a = predictions[id_a]
         yhat_b = predictions[id_b]
 
@@ -46,7 +57,6 @@ def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
             continue
 
         try:
-            # Run the DM test
             stat, pval = dm_test(
                 actuals[mask].values,
                 yhat_a[mask].values,
@@ -55,16 +65,15 @@ def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
             )
 
             # --- WINNER-FIRST LOGIC ---
-            # If stat is negative, Model A has lower loss (Winner)
-            # If stat is positive, Model B has lower loss (Winner)
             if stat <= 0:
                 m1, m2 = id_a, id_b
                 final_stat = stat
             else:
                 m1, m2 = id_b, id_a
-                final_stat = -stat  # Flip sign to show m1's advantage
+                final_stat = -stat
 
             results.append({
+                'version': ver_a,
                 'model_1': m1,
                 'model_2': m2,
                 'test_statistic': final_stat,
@@ -74,7 +83,8 @@ def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
         except Exception:
             continue
 
-    return pd.DataFrame(results).sort_values('p_value')
+    # Return sorted by version, then by highest significance (lowest p-value)
+    return pd.DataFrame(results).sort_values(['version', 'p_value'])
 
 def dm_test(
     y_actual: np.ndarray,
