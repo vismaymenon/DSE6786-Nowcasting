@@ -359,6 +359,10 @@ if __name__ == "__main__":
     DATA_DIR = PROJECT_DIR / "data"
 
     df_md, df_qd = load_filled_data()
+    
+    X0SA, y0SA             = build_X0_SA(df_md, df_qd)
+    X0UMIDAS, y0UMIDAS     = build_X0_UMIDAS(df_md, df_qd, n_lags=4)
+
 
     X1, y1             = build_X1(df_md, df_qd)
     X2, y2             = build_X2(df_md, df_qd, n_lags=4)

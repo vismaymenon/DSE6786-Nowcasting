@@ -88,6 +88,8 @@ def drop_columns(df):
         cols_to_drop.append('OUTNFB')
     if 'OUTBS' in df.columns:
         cols_to_drop.append('OUTBS')
+    if 'OPHPBS' in df.columns:
+        cols_to_drop.append('OPHPBS')
     return df.drop(columns=cols_to_drop)
 
 def drop_empty_rows(df):
@@ -127,6 +129,17 @@ def add_covid_flags(df):
     df.loc['2020-07':'2020-09', 'covid_recover'] = 1
     return df
 
+def drop_duplicate_columns(fred_md, fred_qd):
+    # Identify duplicate columns
+    common_cols = set(fred_md.columns).intersection(set(fred_qd.columns))    
+    # Drop MD columns from QD
+    for col in common_cols:
+        if col in fred_qd.columns:
+            print(f"Dropping duplicate column: {col}")
+            fred_qd = fred_qd.drop(columns=[col])
+    
+    return fred_qd
+
 def load_main(run_date=None):
     if run_date is None:
         run_date = pd.Timestamp.today()
@@ -144,13 +157,13 @@ def load_main(run_date=None):
         ))), "../data", "fred_md")
         print(f"Finished loading and transforming monthly data for {prev_month}.")
 
-        fred_qd = save_df(add_covid_flags(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
+        fred_qd = save_df(drop_empty_rows(load_transformed_series_latest_release(drop_columns(
             load_series(f"https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/{prev_month}-qd.csv", skiprows=[1, 2])),
             get_fred_qd_metadata()
-        ))), "../data", "fred_qd")
+        )), "../data", "fred_qd")
         print(f"Finished loading and transforming quarterly data for {prev_month}.")
 
-        fred_qd_X = save_df(fred_qd.iloc[:, 1:], "../data", "fred_qd_X")
+        fred_qd_X = save_df(add_covid_flags(drop_duplicate_columns(fred_md, fred_qd.iloc[:, 1:])), "../data", "fred_qd_X")
         gdp = save_df(fred_qd.iloc[:, [0]]*400, "../data", "gdp")  
         
     except Exception as e:
