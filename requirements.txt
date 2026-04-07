@@ -1,6 +1,5 @@
 shiny>=1.0
 shinywidgets>=0.3
-# shinylive >= 0.8.6
 plotly>=5.18
 pandas>=2.0
 openpyxl>=3.1
@@ -12,3 +11,4 @@ scipy>=1.10
 fredapi>=0.4
 python-dotenv>=0.19
 supabase>=2.0
+hdmpy >=0.1.0
