@@ -3,9 +3,10 @@ from scipy import stats
 import pandas as pd
 import numpy as np
 from itertools import combinations
-import os
 from dotenv import load_dotenv
-from supabase import create_client, Client
+from database.client import get_backend_client
+from pipeline.load_data import save_df
+from statsmodels.tsa.stattools import adfuller
 
 load_dotenv()
 
@@ -179,6 +180,11 @@ def dm_test(
 
     d     = loss_fn[loss](e1) - loss_fn[loss](e2)
     d_bar = d.mean()
+    
+    result = adfuller(d)
+    # Covariance Stationarity Check
+    print(f'ADF Statistic: {result[0]}')
+    print(f'ADF p-value: {result[1]}')
 
     # ── HAC lag length ────────────────────────────────────────────────────────
     if bandwidth == "auto":
@@ -208,25 +214,12 @@ def dm_test(
 
     dm_stat = d_bar / np.sqrt(var_d_bar)
 
-    # ── Harvey-Leybourne-Newbold (1997) small-sample correction ──────────────
-    # Rescales the statistic and uses t(n-1) when n < 50
-    if n < 50:
-        hln_factor = np.sqrt(
-            (n + 1 - 2 * h + h * (h - 1) / n) / n
-        )
-        dm_stat *= hln_factor
-        p_value  = 2.0 * stats.t.sf(np.abs(dm_stat), df=n - 1)
-    else:
-        p_value  = 2.0 * stats.norm.sf(np.abs(dm_stat))
+    # ── Harvey-Leybourne-Newbold (1998) small-sample correction ──────────────
+    print(n) # sanity check for n
+    dm_stat_corrected = (1+(n**-1)*(1-2*h)+(n**-2)*h*(h-1))**0.5 * dm_stat
+    p_value  = 2.0 * stats.t.sf(np.abs(dm_stat_corrected), df=n - 1)
 
-    return float(dm_stat), float(p_value)
-
-
-
-# Initialize connection
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
-from database.client import get_backend_client
+    return float(dm_stat_corrected), float(p_value)
 
 
 def fetch_forecast_data(table_name: str = "evaluation") -> pd.DataFrame:
@@ -253,47 +246,91 @@ def fetch_forecast_data(table_name: str = "evaluation") -> pd.DataFrame:
     
     return df_long
 
+def push_dm_results_to_supabase(client, dm_results_df: pd.DataFrame, table_name="dm_test"):
+    """
+    Pushes the 5-column DM results DataFrame into a Supabase table.
+    """
+    records = []
+
+    for _, row in dm_results_df.iterrows():
+        records.append({
+            "version":        int(row["version"]),
+            "model_1":        str(row["model_1"]),
+            "model_2":        str(row["model_2"]),
+            # Convert Pandas NaN to Python None for JSON serialization
+            "test_statistic": None if pd.isna(row["test_statistic"]) else float(row["test_statistic"]),
+            "p_value":        None if pd.isna(row["p_value"]) else float(row["p_value"]),
+        })
+
+    if not records:
+        print("No DM comparison records to push, skipping.")
+        return
+
+    try:
+        # Conflict relies entirely on the unique pairing of models and versions
+        conflict_cols = "version,model_1,model_2"
+        
+        client.table(table_name).upsert(
+            records, 
+            on_conflict=conflict_cols
+        ).execute()
+        
+        print(f"Upserted {len(records)} DM comparison record(s) into '{table_name}'.")
+        
+    except Exception as e:
+        print(f"Failed to push DM results to Supabase: {e}")
 
 
-# Usage
-df_forecasts = fetch_forecast_data()
-print(df_forecasts.head(15))
+def main():
+    # Initialize Supabase Client
+    supabase = get_backend_client()
+
+    # Fetch Forecast Data
+    print("Fetching data from Supabase...")
+    df_forecasts = fetch_forecast_data()
+    
+    if df_forecasts.empty:
+        print("No data fetched. Exiting pipeline.")
+        return
+
+    # Run Pairwise DM Tests
+    print("Running Diebold-Mariano tests...")
+    # Using 'quarter_date' to align the forecasts 
+    dm_results_df = compare_model_pairs(
+        df=df_forecasts, 
+        time_col='quarter_date', 
+    )
+
+    if dm_results_df.empty:
+        print("No valid comparisons generated. Check data overlap/alignment.")
+        return
+
+    print(dm_results_df.head())
+
+    # Push to Supabase
+    print("Pushing results to Supabase...")
+    push_dm_results_to_supabase(
+        client=supabase, 
+        dm_results_df=dm_results_df, 
+        table_name="dm_test"
+    )
+
+    save_df(dm_results_df, "../data", "dm_test_results")
+    print(f"Pipeline complete! Local copy saved .")
+
+if __name__ == "__main__":
+    main()
 
 # ── TEST ──────────────────────────────────────────────────────────────────────
-model_pairs = compare_model_pairs(
-    df_forecasts,
-    time_col='quarter_date'
-)
+# df_forecasts = fetch_forecast_data()
+# print(df_forecasts.head(15))
+# model_pairs = compare_model_pairs(
+#     df_forecasts,
+#     time_col='quarter_date'
+# )
 
-MODEL_COLUMNS = [
-    "AR_Benchmark",
-    "RF_Lags_Average",
-    "RF_Lags_UMIDAS",
-    "LASSO_UMIDAS",
-    "LASSO_Average",
-    "LASSO_Lags_Average",
-    "All_Model_Average",
-]
+# from pipeline.load_data import save_df
+# save_df(model_pairs, "../data", "filter_dm_test_results")
 
 
-# print("Test Statistic:" ,matrix)
-# print("P-value:" ,pval_matrix)
-
-def filter_matching_versions(results_df):
-    """
-    Filters the DM results table to only show pairs with 
-    the same version number (e.g., v1 vs v1, v2 vs v2).
-    """
-    # 1. Extract the digits at the end of the ID strings
-    # \d+$ means "one or more digits at the end of the string"
-    v1 = results_df['model_1'].str.extract(r'(\d+)$').astype(int)
-    v2 = results_df['model_2'].str.extract(r'(\d+)$').astype(int)
-    
-    # 2. Return rows where those extracted numbers match
-    return results_df[v1[0] == v2[0]].copy()
-
-from pipeline.load_data import save_df
-print(model_pairs.head(10))
-matched_results = filter_matching_versions(model_pairs)
-save_df(matched_results, "../data", "filter_dm_test_results")
 
