@@ -397,8 +397,9 @@ if __name__ == "__main__":
 
     qd["sasdate"] = pd.to_datetime(qd["sasdate"], errors="coerce")
     md["sasdate"] = pd.to_datetime(md["sasdate"], errors="coerce")
-    gdp = get_backend_client().table("gdp").select("sasdate, GDPC1_t").execute()
-    gdp_df = pd.DataFrame(gdp.data)
+    # gdp = get_backend_client().table("gdp").select("sasdate, GDPC1_t").execute()
+    # gdp_df = pd.DataFrame(gdp.data)
+    gdp_df = pd.read_csv("data/gdp.csv")
     gdp_df["sasdate"] = pd.to_datetime(gdp_df["sasdate"], errors="coerce")
     gdp_df = gdp_df.set_index("sasdate")
 
@@ -414,7 +415,7 @@ if __name__ == "__main__":
     print("MD tail:"); print(filled_md.tail())
     print("GDP tail:"); print(gdp_filled.tail())
 
-    buildX = make_build_X("X_AR")
+    buildX = make_build_X("X1")
     X, y = buildX(filled_qd, filled_md, gdp_filled, gdp_df["GDPC1_t"])
 
     print("Feature matrix tail:"); print(X.tail())

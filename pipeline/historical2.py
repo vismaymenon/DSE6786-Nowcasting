@@ -5,7 +5,7 @@ from pipeline.models.AR_benchmark import ar_model_nowcast
 from pipeline.models.rf import randomForest
 from pipeline.models.lasso import fit_lasso
 from pipeline.output_x_poos import make_build_X, build_X1_from_cut, build_X2_from_cut, build_X3_from_cut, build_X4_from_cut, build_X_AR_from_cut, build_X_RF_bench_from_cut
-from pipeline.poos import poos_validation
+from pipeline.poos import plot_poos_results, poos_validation
 
 
 def get_month_date(quarter_ts: pd.Timestamp, version: int) -> pd.Timestamp:
@@ -124,18 +124,18 @@ def push_evaluation_to_supabase(client, models: list, version: int, run_date=Non
 
 
 BUILD_REGISTRY = {
-    "AR_Benchmark":      "X_AR",
+    # "AR_Benchmark":      "X_AR",
     # "RF_Lags_Average":   "X2",
     # "RF_Lags_UMIDAS":    "X4",
     # "LASSO_UMIDAS":      "X3",
     # "LASSO_Average":     "X1",
-    # "LASSO_Lags_Average": "X2",
+    "LASSO_Lags_Average": "X2",
 }
 
 MODEL_REGISTRY: dict[str, dict] = {
-    "AR_Benchmark": {
-        "model": ar_model_nowcast
-    },
+    # "AR_Benchmark": {
+    #     "model": ar_model_nowcast
+    # },
     # "RF_Lags_Average": {
     #     "model": randomForest
 
@@ -150,9 +150,9 @@ MODEL_REGISTRY: dict[str, dict] = {
     #     "model": fit_lasso
 
     # },
-    # "LASSO_Lags_Average": {
-    #     "model": fit_lasso
-    # }
+    "LASSO_Lags_Average": {
+        "model": fit_lasso
+    }
 }
 
 
@@ -171,7 +171,7 @@ def run():
     y_full = gdp_df.set_index("sasdate")["GDPC1_t"]
 
     # ── Run POOS per version and push ─────────────────────────────────────────
-    for version in [4, 5, 6, 1, 2, 3]:
+    for version in [5, 1, 2, 3]:
         print(f"\n{'='*60}\nRunning POOS for version {version}\n{'='*60}")
         poos_results = []
 
@@ -189,9 +189,92 @@ def run():
             )
             print(f"  {model_name} → RMSE={rmse:.4f} | MAE={mae:.4f}")
             poos_results.append((model_name, poos_out, rmse, mae))
+            plot_poos_results(y_full, poos_out, title=f"{model_name} — POOS (version {version})")
 
         # Push forecasts for all versions
         push_poos_to_supabase(client, poos_results, version=version)
 
+def fetch_all_model_forecasts(client):
+    all_rows = []
+    page_size = 1000  # Supabase default limit
+    start = 0
+    
+    while True:
+        response = (
+            client.table("model_forecasts")
+            .select("*")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        data = response.data or []
+        all_rows.extend(data)
+        
+        if len(data) < page_size:
+            break  # last page
+        start += page_size
+    
+    return pd.DataFrame(all_rows)
+
+def ensemble(run_date=None):
+    client = get_backend_client()
+    run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
+
+    df = fetch_all_model_forecasts(client)
+    if df.empty:
+        print("No records in model_forecasts, skipping ensemble.")
+        return
+
+    df["quarter_date"] = pd.to_datetime(df["quarter_date"])
+    df["month_date"] = pd.to_datetime(df["month_date"])
+
+    df = df[df["model_name"] != "All_Model_Average"]
+
+    grouped = (
+        df.groupby(["quarter_date", "month_date"], as_index=False)
+          .agg(
+              nowcast=("nowcast", "mean")
+          )
+    )
+
+
+    records = []
+    for _, row in grouped.iterrows():
+        records.append({
+            "run_date": run_date.strftime("%Y-%m-%d"),
+            "model_name": "All_Model_Average",
+            "quarter_date": row["quarter_date"].strftime("%Y-%m-%d"),
+            "month_date": row["month_date"].strftime("%Y-%m-%d"),
+            "nowcast": None if pd.isna(row["nowcast"]) else float(row["nowcast"]),
+            "ci_50_lb": 0,
+            "ci_50_ub": 0,
+            "ci_80_lb": 0,
+            "ci_80_ub": 0,
+        })
+
+    if not records:
+        print("No ensemble records to upsert.")
+        return
+
+    client.table("model_forecasts").upsert(
+        records,
+        on_conflict="model_name,quarter_date,month_date",
+        ignore_duplicates=False
+    ).execute()
+
+    client = get_backend_client()
+    print(f"Inserting ensemble records for {len(records)} dates.")    
+
+    # 0. Delete existing ensemble rows (optional: restrict by run_date)
+    # (
+    #     client.table("model_forecasts")
+    #     .delete()
+    #     .eq("model_name", "Ensemble")
+    #     # .eq("run_date", run_date.strftime("%Y-%m-%d"))  # use this line instead if you only want to clear today's ensemble
+    #     .execute()
+    # )
+    # print("Deleted existing Ensemble rows.")
+
+
 if __name__ == "__main__":
-    run()
+    # run()
+    ensemble()
