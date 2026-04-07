@@ -7,6 +7,7 @@ import pandas as pd
 from pipeline.evaluation_table_hist import push_forecasts_to_evaluation, calculate_and_upsert_rmse, calculate_mean_rmse_by_model
 from pipeline.ci_update import update_ci_columns
 from pipeline.prediction import run_all_nowcasts, compute_and_push_model_average
+from pipeline.dm_test import main as run_dm_test
 
 
 def run(run_date = None):
@@ -41,7 +42,7 @@ def run(run_date = None):
     calculate_and_upsert_rmse(supabase)
     calculate_mean_rmse_by_model(supabase)
     update_ci_columns(supabase)
-    
+    run_dm_test()
 
 if __name__ == "__main__":
     run()
