@@ -16,7 +16,7 @@ def fit_lasso(df_X, gdp):
         X_train = X_train.drop(columns=zero_var_cols)
         X_test  = X_test.drop(columns=zero_var_cols)
 
-    model = hd.rlasso(X_train, y_train, post=True, heteroskedastic=True)
+    model = hd.rlasso(X_train, y_train, post=True, homoskedastic=False)
     coefs = np.nan_to_num(np.array(model.est["coefficients"]).flatten())
     coefs = coefs[1:]  # drop intercept
     intercept = float(np.array(model.est["intercept"]).flat[0])
