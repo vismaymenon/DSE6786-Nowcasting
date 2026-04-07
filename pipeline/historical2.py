@@ -73,6 +73,7 @@ def push_evaluation_to_supabase(client, models: list, version: int, run_date=Non
 
     client.table("evaluation").upsert(records, on_conflict="quarter_date,version").execute()
     print(f"Upserted {len(records)} rows into 'evaluation' (version={version}).")
+    
 
 def run():
     # POOS RESULTS TO BE ADDED HERE
@@ -80,7 +81,7 @@ def run():
 
     push_poos_to_supabase(get_backend_client(), poos_version_4_to_6)
 
-
+    # POOS EVALUATION TO BE ADDED HERE
     poos_version_1_to_3 = []
     push_poos_to_supabase(get_backend_client(), poos_version_1_to_3, version = 1)
 

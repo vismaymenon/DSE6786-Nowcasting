@@ -12,7 +12,7 @@ def assign_version_prev(run_date):
 def assign_version_latest(run_date):
     return (run_date.month - 1) % 3 + 1
 
-def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str, client) -> pd.DataFrame:
+def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str, client, run_date = None) -> pd.DataFrame:
     """
     Wraps a nowcast model to produce a single prediction for gdp.index[-2].
     CI is calculated using RMSE fetched from the evaluation table.
@@ -66,7 +66,7 @@ def nowcast_single(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, mode
         }
     )
 
-def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str, client) -> pd.DataFrame:
+def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str, client, run_date = None) -> pd.DataFrame:
     """
     Wraps a nowcast model to produce a single prediction for gdp.index[-1].
     If gdp.index[-2] is NA, fetches the latest nowcast for that quarter from Supabase
@@ -77,7 +77,12 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
     prev_idx   = gdp.index[-2]
     train_size = 166
 
-    version = assign_version_latest(pd.Timestamp.today().date())
+    run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
+    last_day_of_month = (pd.Timestamp(run_date) + pd.offsets.MonthEnd(0)).date()
+    if run_date != last_day_of_month:
+        run_date = (pd.Timestamp(run_date) - pd.offsets.MonthEnd(1)).date()
+
+    version = assign_version_latest(run_date)
 
     # Fetch RMSE from evaluation table
     rmse_response = (
@@ -144,45 +149,177 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
         }
     )
 
-def push_results_to_supabase(client, models: list, run_date=None):
+X_ar , y_ar, X_rf, y_rf, X1, y1, X2, y2, X3, y3, X4, y4 = build_X_AR(), build_X_RF_bench(), build_X1(), build_X2(), build_X3(), build_X4()
+
+MODEL_REGISTRY: dict[str, dict] = {
+    "AR_Benchmark": {
+        "model": ar_model_nowcast,
+        "X": X_ar,
+        "y": y_ar,
+    },
+    "RF_Benchmark": {
+        "model": randomForest,
+        "X": X_rf,
+        "y": y_rf,
+    },
+    "RF_Lags_Average": {
+        "model": randomForest,
+        "X": X2,
+        "y": y2,
+    },
+    "RF_Lags_UMIDAS": {
+        "model": randomForest,
+        "X": X4,
+        "y": y4,
+    },
+    "LASSO_UMIDAS": {
+        "model": fit_lasso,
+        "X": X3,
+        "y": y3,
+    },
+    "LASSO_Average": {
+        "model": fit_lasso,
+        "X": X1,
+        "y": y1,
+    },
+    "LASSO_Lags_Average": {
+        "model": fit_lasso,
+        "X": X2,
+        "y": y2,
+    }
+}
+
+
+def _push_to_supabase(
+    result: pd.DataFrame,
+    model_name: str,
+    run_date,
+    client,
+    *,
+    push_evaluation: bool,
+) -> None:
+    """
+    Pushes a single model result (one row) to model_forecasts.
+    Optionally upserts into evaluation (only for nowcast_single, not latest).
+    """
+    row = result.iloc[0]
+    quarter_date = str(row["quarter"])
+    month_date   = str(pd.Timestamp(run_date).to_period("M").to_timestamp().date())
+
+    # --- model_forecasts ---
+    forecast_payload = {
+        "run_date":     str(run_date),
+        "model_name":   model_name,
+        "quarter_date": quarter_date,
+        "month_date":   month_date,
+        "nowcast":      row["y_hat"],
+        "ci_50_lb":     row["pred_50_lower"],
+        "ci_50_ub":     row["pred_50_upper"],
+        "ci_80_lb":     row["pred_80_lower"],
+        "ci_80_ub":     row["pred_80_upper"],
+    }
+    client.table("model_forecasts").insert(forecast_payload).execute()
+
+    # --- evaluation (one row per quarter×version, columns = model names) ---
+    if push_evaluation:
+        client.table("evaluation").upsert(
+            {
+                "quarter_date": quarter_date,
+                "version":      int(row["version"]),
+                "month_date":   month_date,
+                "gdp_actual":   row["y_true"],
+                model_name:     row["y_hat"],   # only this model's column
+            },
+            on_conflict="quarter_date,version",  # upsert merges columns
+        ).execute()
+
+def compute_and_push_model_average(client, quarter_dates: list[str], run_date=None) -> None:
+    """
+    Computes simple average across all models for the given quarter_dates only.
+    """
+    run_date = str(pd.Timestamp(run_date or pd.Timestamp.today()).date())
+
+    response = (
+        client.table("model_forecasts")
+        .select("quarter_date, month_date, nowcast, ci_50_lb, ci_50_ub, ci_80_lb, ci_80_ub")
+        .in_("quarter_date", quarter_dates)
+        .neq("model_name", "All_Model_Average")
+        .execute()
+    )
+
+    if not response.data:
+        raise ValueError(f"No forecast data found for quarter_dates={quarter_dates}.")
+
+    df = pd.DataFrame(response.data)
+    numeric_cols = ["nowcast", "ci_50_lb", "ci_50_ub", "ci_80_lb", "ci_80_ub"]
+    df[numeric_cols] = df[numeric_cols].astype(float)
+
+    records = []
+    for (quarter_date, month_date), group in df.groupby(["quarter_date", "month_date"]):
+        avg_row = group[numeric_cols].mean()
+        records.append({
+            "run_date":     run_date,
+            "model_name":   "All_Model_Average",
+            "quarter_date": quarter_date,
+            "month_date":   month_date,
+            "nowcast":      avg_row["nowcast"],
+            "ci_50_lb":     avg_row["ci_50_lb"],
+            "ci_50_ub":     avg_row["ci_50_ub"],
+            "ci_80_lb":     avg_row["ci_80_lb"],
+            "ci_80_ub":     avg_row["ci_80_ub"],
+        })
+
+    client.table("model_forecasts").upsert(
+        records,
+        on_conflict="model_name,quarter_date,month_date"
+    ).execute()
+    print(f"Pushed {len(records)} All_Model_Average records for {quarter_dates}.")
+
+def run_all_nowcasts(
+    gdp: pd.DataFrame,
+    client,
+    run_date=None,
+) -> None:
     run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
-    last_day_of_month = (pd.Timestamp(run_date) + pd.offsets.MonthEnd(0)).date()
-    if run_date != last_day_of_month:
-        run_date = (pd.Timestamp(run_date) - pd.offsets.MonthEnd(1)).date()
 
-    month_date = run_date.strftime("%Y-%m-%d")
+    # ── Step 1: historical nowcast (gdp.index[-2]) ──────────────────────────
+    print("=== nowcast_single (prev quarter) ===")
+    for model_name, cfg in MODEL_REGISTRY.items():
+        print(f"  Running {model_name}...")
+        result = nowcast_single(
+            model=cfg["model"],
+            X=cfg["X"], y=cfg["y"], gdp=gdp,
+            model_name=model_name,
+            client=client,
+            run_date=run_date,
+        )
+        _push_to_supabase(result, model_name, run_date, client, push_evaluation=True)
+        print(f"    → {result['y_hat'].iloc[0]:.4f}")
 
-    for model_name, out, out_latest in models:
-        records = []
+    # ── Step 2: latest nowcast (gdp.index[-1]) ───────────────────────────────
+    print("\n=== nowcast_single_latest (current quarter) ===")
+    for model_name, cfg in MODEL_REGISTRY.items():
+        print(f"  Running {model_name}...")
+        result = nowcast_single_latest(
+            model=cfg["model"],
+            X=cfg["X"], y=cfg["y"], gdp=gdp,
+            model_name=model_name,
+            client=client,
+        )
+        _push_to_supabase(result, model_name, run_date, client, push_evaluation=False)
+        print(f"    → {result['y_hat'].iloc[0]:.4f}")
 
-        for df in [out, out_latest]:
-            for idx, row in df.iterrows():
-                idx = pd.to_datetime(idx)
-                records.append({
-                    "run_date":     run_date.strftime("%Y-%m-%d"),
-                    "model_name":   model_name,
-                    "quarter_date": idx.to_period("Q").asfreq("M", how="end").to_timestamp().strftime("%Y-%m-%d"),
-                    "month_date":   month_date,
-                    "nowcast":      row["y_hat"],
-                    "ci_50_lb":     row["pred_50_lower"],
-                    "ci_50_ub":     row["pred_50_upper"],
-                    "ci_80_lb":     row["pred_80_lower"],
-                    "ci_80_ub":     row["pred_80_upper"],
-                })
+if __name__ == "__main__":
+    supabase_client = get_backend_client()
+    gdp_response = supabase_client.table("gdp").select("sasdate, GDPC1_t").execute()
+    gdp_df = pd.DataFrame(gdp_response.data)
+    gdp_df["sasdate"] = pd.to_datetime(gdp_df["sasdate"])
+    gdp_df = gdp_df.set_index("sasdate")
 
-        if not records:
-            print(f"No records to push for model '{model_name}', skipping.")
-            continue
+    quarter_dates = [
+        pd.Period(gdp_df.index[-2], freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date().isoformat(),
+        pd.Period(gdp_df.index[-1], freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date().isoformat(),
+    ]
 
-        
-
-        seen = set()
-        unique_records = []
-        for r in records:
-            key = (r["model_name"], r["quarter_date"], r["month_date"])
-            if key not in seen:
-                seen.add(key)
-                unique_records.append(r)
-
-        client.table("model_forecasts").upsert(unique_records, on_conflict="model_name,quarter_date,month_date").execute()
-        print(f"Upserted {len(unique_records)} record(s) for model '{model_name}' into 'model_forecasts'.")
+    run_all_nowcasts(gdp_df, supabase_client)
+    compute_and_push_model_average(supabase_client, quarter_dates)
