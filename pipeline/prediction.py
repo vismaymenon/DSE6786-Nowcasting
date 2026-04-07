@@ -268,7 +268,7 @@ def run_all_nowcasts(
     run_date=None,
 ) -> None:
     run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
-    
+
     # ── Step 1: historical nowcast (gdp.index[-2]) ──────────────────────────
     print("=== nowcast_single (prev quarter) ===")
     for model_name, cfg in MODEL_REGISTRY.items():
@@ -305,7 +305,7 @@ def prediction_pipeline(run_date=None):
     X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
 
     global MODEL_REGISTRY
-    MODEL_REGISTRY: dict[str, dict] = {
+    MODEL_REGISTRY= {
         "AR_Benchmark": {
             "model": ar_model_nowcast,
             "X": X_ar,
