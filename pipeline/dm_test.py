@@ -3,10 +3,10 @@ from scipy import stats
 import pandas as pd
 import numpy as np
 from itertools import combinations
-import os
 from dotenv import load_dotenv
 from database.client import get_backend_client
 from pipeline.load_data import save_df
+from statsmodels.tsa.stattools import adfuller
 
 load_dotenv()
 
@@ -180,6 +180,11 @@ def dm_test(
 
     d     = loss_fn[loss](e1) - loss_fn[loss](e2)
     d_bar = d.mean()
+    
+    result = adfuller(d)
+    # Covariance Stationarity Check
+    print(f'ADF Statistic: {result[0]}')
+    print(f'ADF p-value: {result[1]}')
 
     # ── HAC lag length ────────────────────────────────────────────────────────
     if bandwidth == "auto":
