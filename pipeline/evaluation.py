@@ -33,7 +33,7 @@ from pipeline.output_x import (
     build_X_AR, build_X_RF_bench,
 )
 
-NUM_TEST = 100
+NUM_TEST = 50
 
 
 # =============================================================================
@@ -53,6 +53,44 @@ X2,         y2         = build_X2(df_md, df_qd)
 X3,         y3         = build_X3(df_md, df_qd)
 X4,         y4         = build_X4(df_md, df_qd)
 
+# Columns to exclude — GDP components/accounting identities released with GDP
+LEAKING_SERIES = {
+    "PCECC96", "OUTNFB", "OUTBS", "INDPRO", "IPFINAL",
+    "HOABS", "HOANBS", "IPMANSICS", "OPHPBS"
+}
+
+def remove_leaking_columns(X: pd.DataFrame, leaking_series: set = LEAKING_SERIES) -> pd.DataFrame:
+    """
+    Remove columns where the base series ID (part before first '_') 
+    is in the leaking_series set.
+
+    e.g. removes 'OUTBS_t', 'OUTBS_t_m1', 'OUTBS_t_lag2', etc.
+
+    Parameters
+    ----------
+    X              : pd.DataFrame
+    leaking_series : set of base series IDs to remove
+
+    Returns
+    -------
+    pd.DataFrame with leaking columns dropped
+    """
+    cols_to_drop = [
+        col for col in X.columns
+        if col.split("_")[0] in leaking_series
+    ]
+
+    print(f"Dropping {len(cols_to_drop)} leaking columns: {cols_to_drop}")
+    return X.drop(columns=cols_to_drop)
+
+
+# ── Apply to all feature matrices ─────────────────────────────────────────────
+X1 = remove_leaking_columns(X1)
+X2 = remove_leaking_columns(X2)
+X3 = remove_leaking_columns(X3)
+X4 = remove_leaking_columns(X4)
+# X_ar and X_rf_bench only use GDP lags — no macro variables to drop
+
 
 # =============================================================================
 # STEP 2 — Run POOS for each model
@@ -62,17 +100,30 @@ def run_poos(name, method, X, y):
     print(f"\n{'=' * 60}")
     print(f"Running POOS: {name}")
     print("=" * 60)
-    _, y_df, rmse, mae = poos.poos_validation(method=method, X=X, y=y, num_test=NUM_TEST)
+    y_df, rmse, mae = poos.poos_validation(method=method, X=X, y=y, num_test=NUM_TEST)
     return y_df, rmse, mae
 
 
 ar_out,           ar_rmse,           ar_mae           = run_poos("AR Benchmark",    ar_model_nowcast, X_ar,       y_ar)
+poos.plot_poos_results(y_ar,       ar_out,           title="AR Benchmark — POOS")
+
 rf_bench_out,     rf_bench_rmse,     rf_bench_mae     = run_poos("RF Benchmark",    randomForest,     X_rf_bench, y_rf_bench)
+poos.plot_poos_results(y_rf_bench, rf_bench_out,     title="RF Benchmark — POOS")
+
 lasso_out,        lasso_rmse,        lasso_mae        = run_poos("LASSO",           fit_lasso,        X1,         y1)
+poos.plot_poos_results(y1,         lasso_out,        title="LASSO (simple avg) — POOS")
+
 lasso_lags_out,   lasso_lags_rmse,   lasso_lags_mae   = run_poos("LASSO Simple Average lags",      fit_lasso,        X2,         y2)
+poos.plot_poos_results(y2,         lasso_lags_out,   title="LASSO (avg + lags) — POOS")
+
 rf_avg_out,       rf_avg_rmse,       rf_avg_mae       = run_poos("RF Simple Average",          randomForest,     X2,         y2)
+poos.plot_poos_results(y2,         rf_avg_out,       title="RF avg — POOS")
+
 lasso_umidas_out, lasso_umidas_rmse, lasso_umidas_mae = run_poos("LASSO U-MIDAS",   fit_lasso,        X3,         y3)
+poos.plot_poos_results(y3,         lasso_umidas_out, title="LASSO U-MIDAS — POOS")
+
 rf_umidas_out,    rf_umidas_rmse,    rf_umidas_mae    = run_poos("RF U-MIDAS",      randomForest,     X4,         y4)
+poos.plot_poos_results(y3,         rf_umidas_out,    title="RF U-MIDAS — POOS")
 
 
 # =============================================================================
@@ -86,7 +137,7 @@ common_idx = ensemble_dfs[0].index
 for df in ensemble_dfs[1:]:
     common_idx = common_idx.intersection(df.index)
 
-ensemble_y_hat       = np.mean([df.loc[common_idx, "y_hat"]         for df in ensemble_dfs], axis=0)
+ensemble_y_hat       = np.mean([df.loc[common_idx, "y_hat"]          for df in ensemble_dfs], axis=0)
 ensemble_50_lower    = np.mean([df.loc[common_idx, "pred_50_lower"]  for df in ensemble_dfs], axis=0)
 ensemble_50_upper    = np.mean([df.loc[common_idx, "pred_50_upper"]  for df in ensemble_dfs], axis=0)
 ensemble_80_lower    = np.mean([df.loc[common_idx, "pred_80_lower"]  for df in ensemble_dfs], axis=0)
@@ -105,6 +156,8 @@ ensemble_out = pd.DataFrame({
 valid_ens = ensemble_out["y_true"].notna()
 ensemble_rmse = float(np.sqrt(np.mean((ensemble_out.loc[valid_ens, "y_true"] - ensemble_out.loc[valid_ens, "y_hat"]) ** 2)))
 ensemble_mae  = float(np.mean(np.abs(ensemble_out.loc[valid_ens, "y_true"] - ensemble_out.loc[valid_ens, "y_hat"])))
+
+poos.plot_poos_results(y1,         ensemble_out,     title="Ensemble (avg of models 3–7) — POOS")
 
 
 # =============================================================================
@@ -132,20 +185,6 @@ for name, rmse, mae, out in models:
           f"{last['pred_80_lower']:>12.4f} {last['pred_80_upper']:>12.4f}")
 print("=" * 100)
 print(f"\nOOS observations: {NUM_TEST}  |  CI shown for last OOS quarter: {out.index[-1].date()}")
-
-
-# =============================================================================
-# STEP 5 — Plots
-# =============================================================================
-
-poos.plot_poos_results(y_ar,       ar_out,           title="AR Benchmark — POOS")
-poos.plot_poos_results(y_rf_bench, rf_bench_out,     title="RF Benchmark — POOS")
-poos.plot_poos_results(y1,         lasso_out,        title="LASSO (simple avg) — POOS")
-poos.plot_poos_results(y2,         lasso_lags_out,   title="LASSO (avg + lags) — POOS")
-poos.plot_poos_results(y2,         rf_avg_out,       title="RF avg — POOS")
-poos.plot_poos_results(y3,         lasso_umidas_out, title="LASSO U-MIDAS — POOS")
-poos.plot_poos_results(y3,         rf_umidas_out,    title="RF U-MIDAS — POOS")
-poos.plot_poos_results(y1,         ensemble_out,     title="Ensemble (avg of models 3–7) — POOS")
 
 
 # =============================================================================

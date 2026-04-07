@@ -24,6 +24,7 @@ Four datasets
         Shape: (n_quarters, n_monthly×3×5 + n_quarterly×5)
 """
 
+
 import sys
 import numpy as np
 import pandas as pd
@@ -70,6 +71,60 @@ def _load_gdp():
     gdp = gdp.set_index("sasdate").sort_index()
     gdp = gdp[gdp.index.notna()]
     return gdp
+
+
+def _load_gdp_with_flash() -> pd.Series:
+    """
+    Returns the GDP growth series (GDPC1_t) with any unreleased quarters
+    filled by the latest Ensemble flash prediction from model_forecasts.
+
+    Edge case: on 31 March 2026, Q4 2025 GDP may not yet be officially
+    released. We substitute the Ensemble nowcast so lag features can be
+    constructed for the Q1 2026 nowcast row.
+    """
+    gdp = _load_gdp()
+    y = gdp["GDPC1_t"].copy()
+
+    missing = y[y.isna()].index
+    if len(missing) == 0:
+        return y
+
+    supabase = get_backend_client()
+    for date in missing:
+        quarter_end = (date + pd.offsets.QuarterEnd(0)).date().isoformat()
+        resp = (supabase.table("model_forecasts")
+                .select("nowcast")
+                .eq("model_name", "Ensemble")
+                .eq("quarter_date", quarter_end)
+                .order("run_date", desc=True)
+                .limit(1)
+                .execute())
+        if resp.data:
+            flash_val = float(resp.data[0]["nowcast"])
+            y[date] = flash_val
+            print(f"  GDP lag: using Ensemble flash prediction "
+                  f"{flash_val:.4f} for {date.date()} (not yet officially released)")
+        else:
+            print(f"  GDP lag: no flash prediction found for {date.date()}, "
+                  f"lag will remain NaN")
+    return y
+
+
+def _load_gdp_lags(n_lags: int = 4) -> pd.DataFrame:
+    """
+    Returns a DataFrame of n_lags quarterly lags of GDP growth.
+    Columns: gdp_lag1 … gdp_lag{n_lags}.
+
+    Uses _load_gdp_with_flash() so that unreleased quarters (e.g. Q4 2025
+    on 31 March 2026) are filled by the Ensemble flash prediction before
+    computing lags, ensuring the t row (e.g. Q1 2026) has valid lag features.
+    """
+    y = _load_gdp_with_flash()
+    df = y.to_frame()
+    for k in range(1, n_lags + 1):
+        df[f"gdp_lag{k}"] = y.shift(k)
+    lag_cols = [f"gdp_lag{k}" for k in range(1, n_lags + 1)]
+    return df[lag_cols]
 
 
 # =============================================================================
@@ -158,6 +213,8 @@ def _finalise(X: pd.DataFrame, gdp: pd.DataFrame) -> tuple:
         print(f"  Dropping {(~valid).sum()} rows with NaNs.")
     return X[valid], y[valid]
 
+
+
 # =============================================================================
 # X1 — SIMPLE AVERAGE
 # =============================================================================
@@ -171,9 +228,8 @@ def build_X1(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
     gdp   = _load_gdp()
     df_avg = _average_monthly_to_quarterly(df_md)
     df_q   = _prep_qd(df_qd)
-    X = df_avg.join(df_q, how="inner")
+    X = df_avg.join(df_q, how="inner").join(_load_gdp_lags(), how="left")
     X, y = _finalise(X, gdp)
-    X, y = X.iloc[4:], y.iloc[4:]  # drop first 4 quarters to match X2/X4 lag-trimmed window
     print(f"X1 (avg):            {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
@@ -193,7 +249,7 @@ def build_X2(df_md: pd.DataFrame, df_qd: pd.DataFrame, n_lags: int = 4) -> tuple
     df_avg = _average_monthly_to_quarterly(df_md)
     df_q   = _prep_qd(df_qd)
     qd1 = df_avg.join(df_q, how="inner")
-    X = _add_lags(qd1, n_lags)
+    X = _add_lags(qd1, n_lags).join(_load_gdp_lags(), how="left")
     X, y = _finalise(X, gdp)
     print(f"X2 (avg + {n_lags} lags):     {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
@@ -213,9 +269,8 @@ def build_X3(df_md: pd.DataFrame, df_qd: pd.DataFrame) -> tuple:
     gdp      = _load_gdp()
     df_umidas = _umidas_monthly_to_quarterly(df_md)
     df_q      = _prep_qd(df_qd)
-    X = df_umidas.join(df_q, how="inner")
+    X = df_umidas.join(df_q, how="inner").join(_load_gdp_lags(), how="left")
     X, y = _finalise(X, gdp)
-    X, y = X.iloc[4:], y.iloc[4:]  # drop first 4 quarters to match X2/X4 lag-trimmed window
     print(f"X3 (U-MIDAS):        {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
@@ -242,7 +297,7 @@ def build_X4(df_md: pd.DataFrame, df_qd: pd.DataFrame,
     df_umidas_lagged = _add_lags(df_umidas, n_monthly_lags)
     df_q_lagged      = _add_lags(df_q, n_qd_lags)
 
-    X = df_umidas_lagged.join(df_q_lagged, how="inner")
+    X = df_umidas_lagged.join(df_q_lagged, how="inner").join(_load_gdp_lags(), how="left")
     X, y = _finalise(X, gdp)
     print(f"X4 (U-MIDAS + lags): {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
@@ -256,16 +311,18 @@ def build_X_AR(n_lags: int = 2) -> tuple:
     """
     X_AR: 2 quarterly lags of GDP growth as features.
     Used by the AR benchmark model.
+
+    Uses flash-filled GDP so that the t row (e.g. Q1 2026) has valid
+    lag features even when t-1 GDP (e.g. Q4 2025) is not yet released.
     """
-    gdp = _load_gdp()
-    df = gdp["GDPC1_t"].rename("gdp_growth").to_frame()
+    y_gdp = _load_gdp_with_flash()
+    df = y_gdp.rename("gdp_growth").to_frame()
     for lag in range(1, n_lags + 1):
         df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
     lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
-    df = df[df[lag_cols].notna().all(axis=1)]  # only drop rows where lags are NaN
-    X = df[lag_cols]
-    y = df["gdp_growth"]
-    X, y = X.iloc[2:], y.iloc[2:]
+    df = df[df[lag_cols].notna().all(axis=1)]
+    X = df[lag_cols].iloc[2:]
+    y = df["gdp_growth"].iloc[2:]
     print(f"X_AR ({n_lags} lags):          {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
@@ -278,13 +335,16 @@ def build_X_RF_bench(n_lags: int = 4) -> tuple:
     """
     X_RF_bench: 4 quarterly lags of GDP growth as features.
     Used by the benchmark RF model.
+
+    Uses flash-filled GDP so that the t row (e.g. Q1 2026) has valid
+    lag features even when t-1 GDP (e.g. Q4 2025) is not yet released.
     """
-    gdp = _load_gdp()
-    df = gdp["GDPC1_t"].rename("gdp_growth").to_frame()
+    y_gdp = _load_gdp_with_flash()
+    df = y_gdp.rename("gdp_growth").to_frame()
     for lag in range(1, n_lags + 1):
         df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
     lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
-    df = df[df[lag_cols].notna().all(axis=1)]  # only drop rows where lags are NaN
+    df = df[df[lag_cols].notna().all(axis=1)]
     X = df[lag_cols]
     y = df["gdp_growth"]
     print(f"X_RF_bench ({n_lags} lags):    {X.shape[0]} quarters × {X.shape[1]} features")
@@ -296,21 +356,30 @@ def build_X_RF_bench(n_lags: int = 4) -> tuple:
 # =============================================================================
 
 if __name__ == "__main__":
+    DATA_DIR = PROJECT_DIR / "data"
+
     df_md, df_qd = load_filled_data()
 
-    X1, y1 = build_X1(df_md, df_qd)
-    X2, y2 = build_X2(df_md, df_qd, n_lags=4)
-    X3, y3 = build_X3(df_md, df_qd)
-    X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
-    X_AR, y_AR = build_X_AR(n_lags=2)
+    X1, y1             = build_X1(df_md, df_qd)
+    X2, y2             = build_X2(df_md, df_qd, n_lags=4)
+    X3, y3             = build_X3(df_md, df_qd)
+    X4, y4             = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
+    X_AR, y_AR         = build_X_AR(n_lags=2)
     X_RF_bench, y_RF_bench = build_X_RF_bench(n_lags=4)
 
+    datasets = [
+        ("X1",       X1,       y1),
+        ("X2",       X2,       y2),
+        ("X3",       X3,       y3),
+        ("X4",       X4,       y4),
+        ("X_AR",     X_AR,     y_AR),
+        ("X_RF_bench", X_RF_bench, y_RF_bench),
+    ]
 
-    print("\n=== Summary ===")
-    for name, X, y in [("X1 (avg)", X1, y1), ("X2 (avg + 4 lags)", X2, y2),
-                        ("X3 (U-MIDAS)", X3, y3), ("X4 (U-MIDAS + lags)", X4, y4),
-                        ("X_AR (AR benchmark)", X_AR, y_AR), ("X_RF_bench (RF benchmark)", X_RF_bench, y_RF_bench)]:
-        print(f"\n--- {name} : {X.shape} ---")
-        print("y:")
-        print(y.head().to_string())
-        print(y.tail().to_string())
+    print("\n=== Saving to CSV ===")
+    for name, X, y in datasets:
+        x_path = DATA_DIR / f"{name}.csv"
+        y_path = DATA_DIR / f"y_{name}.csv"
+        X.to_csv(x_path)
+        y.to_csv(y_path, header=True)
+        print(f"  {name}: X={X.shape} → {x_path.name}, y={y.shape} → {y_path.name}")
