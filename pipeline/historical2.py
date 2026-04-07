@@ -6,7 +6,8 @@ from pipeline.models.rf import randomForest
 from pipeline.models.lasso import fit_lasso
 from pipeline.output_x_poos import make_build_X, build_X1_from_cut, build_X2_from_cut, build_X3_from_cut, build_X4_from_cut, build_X_AR_from_cut, build_X_RF_bench_from_cut
 from pipeline.poos import poos_validation
-
+import matplotlib.pyplot as plt
+import os
 
 def get_month_date(quarter_ts: pd.Timestamp, version: int) -> pd.Timestamp:
     """
@@ -155,6 +156,84 @@ MODEL_REGISTRY: dict[str, dict] = {
     # }
 }
 
+def plot_poos_results(
+    y_full: pd.Series,
+    y_df: pd.DataFrame,
+    model_name: str,
+    version: int,
+    last_n: int = 200,
+) -> None:
+    fig, ax = plt.subplots(figsize=(14, 5))
+
+    y_plot = y_full.iloc[-last_n:]
+    cutoff_date = y_plot.index[0]
+
+    ax.plot(
+        y_plot.index,
+        y_plot.values,
+        color="black",
+        linewidth=1.2,
+        label="Actual (full sample)",
+        zorder=3,
+    )
+
+    y_df_plot = y_df[y_df.index >= cutoff_date]
+    idx = y_df_plot.index
+
+    ax.plot(
+        idx,
+        y_df_plot["y_hat"],
+        color="red",
+        linewidth=1.2,
+        label="Predicted (OOS)",
+        zorder=4,
+    )
+
+    ax.fill_between(
+        idx,
+        y_df_plot["pred_50_lower"],
+        y_df_plot["pred_50_upper"],
+        alpha=0.4,
+        color="steelblue",
+        label="50% CI",
+    )
+
+    ax.fill_between(
+        idx,
+        y_df_plot["pred_80_lower"],
+        y_df_plot["pred_80_upper"],
+        alpha=0.2,
+        color="steelblue",
+        label="80% CI",
+    )
+
+    ax.axvline(
+        x=idx[0],
+        color="grey",
+        linestyle=":",
+        linewidth=1,
+        label="OOS start",
+    )
+
+    title = f"{model_name} — Version {version} — POOS Results"
+
+    ax.set_title(title)
+    ax.set_xlabel("Date")
+    ax.set_ylabel("GDP growth")
+    ax.legend(loc="upper left")
+    ax.grid(True, alpha=0.3)
+    fig.autofmt_xdate()
+    plt.tight_layout()
+
+    os.makedirs("pipeline/plots", exist_ok=True)
+    safe_title = title.replace(" ", "_").replace("/", "_")
+    fig.savefig(
+        os.path.join("pipeline/plots", f"{safe_title}.png"),
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close()
+
 
 def run():
     client = get_backend_client()
@@ -187,6 +266,8 @@ def run():
                 y_full=y_full,
                 version=version,
             )
+
+            plot_poos_results(y_full, poos_out, model_name, version)
             print(f"  {model_name} → RMSE={rmse:.4f} | MAE={mae:.4f}")
             poos_results.append((model_name, poos_out, rmse, mae))
 
