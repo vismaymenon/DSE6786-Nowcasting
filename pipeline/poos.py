@@ -366,6 +366,10 @@ if __name__ == "__main__":
 
     qd["sasdate"] = pd.to_datetime(qd["sasdate"], errors="coerce")
     md["sasdate"] = pd.to_datetime(md["sasdate"], errors="coerce")
+    gdp = get_backend_client().table("gdp").select("sasdate, GDPC1_t").execute()
+    gdp_df = pd.DataFrame(gdp.data)
+    gdp_df["sasdate"] = pd.to_datetime(gdp_df["sasdate"], errors="coerce")
+    gdp_df = gdp_df.set_index("sasdate")
 
     # Smoke-test cut_and_fill
     filled_qd, filled_md, gdp_filled = cut_and_fill(
@@ -373,9 +377,14 @@ if __name__ == "__main__":
         q_predicted=pd.Timestamp("2025-12-01"),
         QD_t=qd,
         MD_t=md,
+        gdp=gdp_df["GDPC1_t"]
     )
     print("QD tail:"); print(filled_qd.tail())
     print("MD tail:"); print(filled_md.tail())
     print(f"GDP cutoff: {gdp_filled.date()}")
 
-    
+    buildX = make_build_X("X_AR")
+    X, y = buildX(filled_qd, filled_md, gdp_cut, gdp_df["GDPC1_t"])
+
+    print("Feature matrix tail:"); print(X.tail())
+    print("Target series tail:"); print(y.tail())

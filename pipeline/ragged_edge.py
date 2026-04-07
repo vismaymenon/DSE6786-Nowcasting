@@ -1,6 +1,7 @@
 import pandas as pd
 from supabase import Client
 from statsmodels.tsa.ar_model import AutoReg
+from dateutil.relativedelta import relativedelta
 
 
 def read_table(client: Client, table_name: str) -> pd.DataFrame:
