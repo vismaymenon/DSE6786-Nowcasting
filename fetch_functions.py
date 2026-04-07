@@ -1,4 +1,4 @@
-from supabase_client import supabase
+from supabase import create_client
 
 url = "https://uhxliyubyjwtpxjcfedk.supabase.co"
 key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoeGxpeXVieWp3dHB4amNmZWRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMTcwMDQsImV4cCI6MjA4OTU5MzAwNH0.OYSxxQUNHVS0UROxhiHlj2h9TrVLZfimKqfMD6HaC1U"
@@ -9,16 +9,12 @@ supabase = create_client(url, key)
 ## Converts quarter string to start and end dates ##
 # Needed 'cuz we don't have a column for quarter #
 def quarter_to_dates(quarter: str):
-
     year, q = quarter.split(":")
-    quarter_map = {
-        "Q1": ("01-01", "03-31"),
-        "Q2": ("04-01", "06-30"),
-        "Q3": ("07-01", "09-30"),
-        "Q4": ("10-01", "12-31"),
-    }
-    start, end = quarter_map[q]
-    return f"{year}-{start}", f"{year}-{end}"
+    year = int(year)
+    quarter_end_months = {"Q1": "03-31", "Q2": "06-30", "Q3": "09-30", "Q4": "12-31"}
+    quarter_start_months = {"Q1": "01-01", "Q2": "04-01", "Q3": "07-01", "Q4": "10-01"}
+    quarter_date = f"{year}-{quarter_end_months[q][:2]}-01"  # e.g. 2024-12-01
+    return quarter_date, f"{year}-{quarter_end_months[q]}"
 
 ######## Function 1: Getting Nowcast Data ########
 
@@ -30,8 +26,7 @@ def fetch_nowcast_data(quarter: str) -> dict[str, list[float]]:
     # Step 1: Get rows from model_forecasts table for the specified quarter
     result = supabase.table("model_forecasts") \
         .select("*") \
-        .gte("month_date", quarter_start) \
-        .lte("month_date", quarter_end) \
+        .eq("quarter_date", quarter_start) \
         .order("month_date") \
         .execute()
         
@@ -66,8 +61,7 @@ def fetch_nowcast_x_labels(quarter: str) -> list[str]:
     # Step 1: Repeat step 1; query supabase
     result = supabase.table("model_forecasts") \
     .select("*") \
-    .gte("month_date", quarter_start) \
-    .lte("month_date", quarter_end) \
+    .eq("quarter_date", quarter_start) \
     .order("month_date") \
     .execute()
         
@@ -93,8 +87,7 @@ def fetch_confidence_intervals(quarter: str, model: str) -> tuple[list[str], lis
     result = supabase.table("model_forecasts") \
     .select("month_date", "ci_50_lb", "ci_50_ub", "ci_80_lb", "ci_80_ub") \
     .eq("model_name", model) \
-    .gte("month_date", quarter_start) \
-    .lte("month_date", quarter_end) \
+    .eq("quarter_date", quarter_start) \
     .order("month_date") \
     .execute()
         
@@ -111,7 +104,7 @@ def fetch_confidence_intervals(quarter: str, model: str) -> tuple[list[str], lis
 
 
 ######## Function 4: Fetch Historical Data ########
-def fetch_historical_data(start_date, end_date, flash_month: int) -> tuple[list[str], list[float], dict[str, list[float]]]:
+def fetch_historical_data(start_date, end_date) -> tuple[list[str], list[float], dict[str, list[float]]]:
     
     # Step 1: Get actual GDP values from gdp table
     actuals_results = supabase.table("gdp") \
