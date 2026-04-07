@@ -175,48 +175,7 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
 
 
 
-df_md, df_qd = load_filled_data()
-X_ar , y_ar = build_X_AR()
-X1, y1 = build_X1(df_md, df_qd)
-X2, y2 = build_X2(df_md, df_qd, n_lags=4)
-X3, y3 = build_X3(df_md, df_qd)
-X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
 
-MODEL_REGISTRY: dict[str, dict] = {
-    "AR_Benchmark": {
-        "model": ar_model_nowcast,
-        "X": X_ar,
-        "y": y_ar,
-    },
-    "RF_Lags_Average": {
-        "model": randomForest,
-        "X": X2,
-        "y": y2,
-    },
-    "RF_Lags_UMIDAS": {
-        "model": randomForest,
-        "X": X4,
-        "y": y4,
-    },
-    "LASSO_UMIDAS": {
-        "model": fit_lasso,
-        "X": X3,
-        "y": y3,
-    },
-    "LASSO_Average": {
-        "model": fit_lasso,
-        "X": X1,
-        "y": y1,
-    },
-    "LASSO_Lags_Average": {
-        "model": fit_lasso,
-        "X": X2,
-        "y": y2,
-    }
-}
-
-print(X1.tail())
-print(y1.tail())
 
 def _push_to_supabase(
     result: pd.DataFrame,
@@ -341,6 +300,45 @@ def run_all_nowcasts(
         print(f"    → {result['y_hat'].iloc[0]:.4f}")
 
 if __name__ == "__main__":
+    df_md, df_qd = load_filled_data()
+    X_ar , y_ar = build_X_AR()
+    X1, y1 = build_X1(df_md, df_qd)
+    X2, y2 = build_X2(df_md, df_qd, n_lags=4)
+    X3, y3 = build_X3(df_md, df_qd)
+    X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
+
+    MODEL_REGISTRY: dict[str, dict] = {
+        "AR_Benchmark": {
+            "model": ar_model_nowcast,
+            "X": X_ar,
+            "y": y_ar,
+        },
+        "RF_Lags_Average": {
+            "model": randomForest,
+            "X": X2,
+            "y": y2,
+        },
+        "RF_Lags_UMIDAS": {
+            "model": randomForest,
+            "X": X4,
+            "y": y4,
+        },
+        "LASSO_UMIDAS": {
+            "model": fit_lasso,
+            "X": X3,
+            "y": y3,
+        },
+        "LASSO_Average": {
+            "model": fit_lasso,
+            "X": X1,
+            "y": y1,
+        },
+        "LASSO_Lags_Average": {
+            "model": fit_lasso,
+            "X": X2,
+            "y": y2,
+        }
+    }
     supabase_client = get_backend_client()
     gdp_response = supabase_client.table("gdp").select("sasdate, GDPC1_t").execute()
     gdp_response = get_backend_client().table("gdp").select("sasdate, GDPC1_t").order("sasdate", desc=False).execute()
