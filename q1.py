@@ -1,4 +1,4 @@
-from test import run
+from pipeline.pipe import run
 import pandas as pd
 
 

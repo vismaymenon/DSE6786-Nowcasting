@@ -173,51 +173,6 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
         }
     )
 
-
-
-df_md, df_qd = load_filled_data()
-X_ar , y_ar = build_X_AR()
-X1, y1 = build_X1(df_md, df_qd)
-X2, y2 = build_X2(df_md, df_qd, n_lags=4)
-X3, y3 = build_X3(df_md, df_qd)
-X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
-
-MODEL_REGISTRY: dict[str, dict] = {
-    "AR_Benchmark": {
-        "model": ar_model_nowcast,
-        "X": X_ar,
-        "y": y_ar,
-    },
-    "RF_Lags_Average": {
-        "model": randomForest,
-        "X": X2,
-        "y": y2,
-    },
-    "RF_Lags_UMIDAS": {
-        "model": randomForest,
-        "X": X4,
-        "y": y4,
-    },
-    "LASSO_UMIDAS": {
-        "model": fit_lasso,
-        "X": X3,
-        "y": y3,
-    },
-    "LASSO_Average": {
-        "model": fit_lasso,
-        "X": X1,
-        "y": y1,
-    },
-    "LASSO_Lags_Average": {
-        "model": fit_lasso,
-        "X": X2,
-        "y": y2,
-    }
-}
-
-print(X1.tail())
-print(y1.tail())
-
 def _push_to_supabase(
     result: pd.DataFrame,
     model_name: str,
@@ -226,6 +181,7 @@ def _push_to_supabase(
     *,
     push_evaluation: bool,
 ) -> None:
+    run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
     """
     Pushes a single model result (one row) to model_forecasts.
     Optionally upserts into evaluation (only for nowcast_single, not latest).
@@ -312,6 +268,50 @@ def run_all_nowcasts(
     run_date=None,
 ) -> None:
     run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
+
+# bringig this line into the fucntion to avoid runtime error
+    df_md, df_qd = load_filled_data()
+    X_ar , y_ar = build_X_AR()
+    X1, y1 = build_X1(df_md, df_qd)
+    X2, y2 = build_X2(df_md, df_qd, n_lags=4)
+    X3, y3 = build_X3(df_md, df_qd)
+    X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
+
+    MODEL_REGISTRY: dict[str, dict] = {
+        "AR_Benchmark": {
+            "model": ar_model_nowcast,
+            "X": X_ar,
+            "y": y_ar,
+        },
+        "RF_Lags_Average": {
+            "model": randomForest,
+            "X": X2,
+            "y": y2,
+        },
+        "RF_Lags_UMIDAS": {
+            "model": randomForest,
+            "X": X4,
+            "y": y4,
+        },
+        "LASSO_UMIDAS": {
+            "model": fit_lasso,
+            "X": X3,
+            "y": y3,
+        },
+        "LASSO_Average": {
+            "model": fit_lasso,
+            "X": X1,
+            "y": y1,
+        },
+        "LASSO_Lags_Average": {
+            "model": fit_lasso,
+            "X": X2,
+            "y": y2,
+        }
+    }
+
+    print(X1.tail())
+    print(y1.tail())
 
     # ── Step 1: historical nowcast (gdp.index[-2]) ──────────────────────────
     print("=== nowcast_single (prev quarter) ===")
