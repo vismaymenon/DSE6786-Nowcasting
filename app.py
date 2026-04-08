@@ -4,9 +4,49 @@ from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 import numpy as np
 from datetime import date
-from pipeline.fetch_functions import fetch_nowcast_data, fetch_confidence_intervals, fetch_historical_data, fetch_rmse, fetch_dm
+from pipeline.fetch_functions import fetch_nowcast_data, fetch_confidence_intervals, fetch_historical_data, fetch_rmse, fetch_dm, fetch_realised_gdp
 
-QUARTERS = ["2026:Q1", "2025:Q4"]
+import calendar
+from datetime import date
+
+# To automate quarters based on today's date, we define a helper function that maps any date to its current and previous quarter in "YYYY:QX" format. This ensures our app always offers up-to-date quarter options without manual updates.
+def date_to_quarter(system_date: date) -> dict:
+    # First month of each quarter
+    quarter_first_months = {1: 1, 2: 4, 3: 7, 4: 10}
+    
+    raw_quarter = (system_date.month - 1) // 3 + 1
+    current_year = system_date.year
+
+    # Last day of the first month of the current raw quarter
+    first_month = quarter_first_months[raw_quarter]
+    last_day_of_first_month = calendar.monthrange(current_year, first_month)[1]
+    threshold = date(current_year, first_month, last_day_of_first_month)
+
+    # If we haven't passed the end of the first month, stay in the previous quarter
+    if system_date <= threshold:
+        raw_quarter -= 1
+        if raw_quarter == 0:
+            raw_quarter = 4
+            current_year -= 1
+
+    current_quarter = raw_quarter
+    
+    if current_quarter == 1:
+        previous_quarter = 4
+        previous_year = current_year - 1
+    else:
+        previous_quarter = current_quarter - 1
+        previous_year = current_year
+
+    return {
+        "current_quarter": f"{current_year}:Q{current_quarter}",
+        "previous_quarter": f"{previous_year}:Q{previous_quarter}",
+    }
+
+QUARTERS = [
+    date_to_quarter(date.today())["current_quarter"],
+    date_to_quarter(date.today())["previous_quarter"],
+]
 
 # Display name -> database name mapping
 MODEL_DB_NAMES = {
@@ -963,7 +1003,32 @@ def server(input, output, session):
                     showlegend=True,
                 )
             )
-
+        realised = fetch_realised_gdp(quarter)
+        if realised is not None:
+            fig.add_hline(
+                y=realised,
+                line_dash="dash",
+                line_color=t["text_secondary"],
+                line_width=1.5,
+                annotation_text=f"Realised GDP: {realised:.1f}%",
+                annotation_position="top left",
+                annotation_font_color=t["text_secondary"],
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=[x_labels[-1]],
+                    y=[realised],
+                    mode="markers",
+                    name="Realised GDP",
+                    marker=dict(
+                        color=t["text_secondary"],
+                        size=12,
+                        symbol="diamond",
+                        line=dict(color=t["plot_text"], width=1.5),
+                    ),
+                    hovertemplate="Realised GDP: %{y:.2f}%<extra></extra>",
+                )
+            )
         fig.update_layout(
             yaxis_title="% annual GDP growth",
             plot_bgcolor=t["plot_bg"],
