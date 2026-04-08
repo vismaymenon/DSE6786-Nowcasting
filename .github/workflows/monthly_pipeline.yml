@@ -1,0 +1,33 @@
+name: Monthly Nowcast Pipeline
+
+on:
+  schedule:
+    - cron: '0 00 28-31 * *'  # Runs at 2am UTC on days 28–31
+  workflow_dispatch:           # Allows manual trigger from GitHub UI
+  push:                    # temporary — remove after testing
+    branches:
+      - vismay-piper
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+
+        run: python pipeline/pipe.py

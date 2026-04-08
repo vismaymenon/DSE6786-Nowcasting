@@ -11,6 +11,10 @@ from pipeline.dm_test import main as run_dm_test
 
 
 def run(run_date = None):
+    today = pd.Timestamp.today()
+    if today.date() != (today + pd.offsets.MonthEnd(0)).date():
+        print(f"Today ({today.date()}) is not the last day of the month. Skipping.")
+        return
     load_main(run_date=pd.to_datetime(run_date) if run_date else None)
     supabase = get_backend_client()
     sync_csv_to_supabase(supabase)

@@ -173,10 +173,6 @@ def nowcast_single_latest(model, X: pd.DataFrame, y: pd.Series, gdp: pd.DataFram
         }
     )
 
-
-
-
-
 def _push_to_supabase(
     result: pd.DataFrame,
     model_name: str,
@@ -185,6 +181,7 @@ def _push_to_supabase(
     *,
     push_evaluation: bool,
 ) -> None:
+    run_date = pd.Timestamp(run_date or pd.Timestamp.today()).date()
     """
     Pushes a single model result (one row) to model_forecasts.
     Optionally upserts into evaluation (only for nowcast_single, not latest).
