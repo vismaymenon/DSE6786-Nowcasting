@@ -4,7 +4,7 @@ from database.client import get_backend_client
 from pipeline.models.AR_benchmark import ar_model_nowcast
 from pipeline.models.rf import randomForest
 from pipeline.models.lasso import fit_lasso
-from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data, build_X_AR, build_X_RF_bench, load_filled_data
+from pipeline.output_x import build_X1, build_X2, build_X3, build_X4, load_filled_data, build_X_AR, load_filled_data
 
 def fetch_all_model_forecasts(client):
     all_rows = []
@@ -350,5 +350,5 @@ def prediction_pipeline(run_date=None):
         pd.Period(gdp_df.index[-1], freq="Q").to_timestamp(how="end").to_period("M").to_timestamp().date().isoformat(),
     ]
 
-    run_all_nowcasts(gdp_df, supabase_client, run_date = '2026-02-28')
+    run_all_nowcasts(gdp_df, supabase_client, run_date = run_date)
     compute_and_push_model_average(supabase_client, quarter_dates)
