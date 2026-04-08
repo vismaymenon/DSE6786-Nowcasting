@@ -1,3 +1,4 @@
+from pathlib import Path
 from shiny import App, ui, render, reactive
 from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
@@ -111,11 +112,6 @@ def fetch_dm_matrix(models: list[str]) -> dict[tuple[str, str], float | None]:
 
 QUARTERS = ["2026:Q1", "2025:Q4"]
 MODELS = ["Combined model", "Model 1", "Model 2"]
-MODEL_COLORS = {
-    "Combined model": "#1f77b4",
-    "Model 1": "#2ca02c",
-    "Model 2": "#d62728",
-}
 
 _NOWCAST_X = ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03"]
 
@@ -238,21 +234,27 @@ def get_dummy_dm_matrix(models: list[str]):
 THEME = {
     "light": {
         # ── Backgrounds ──────────────────────────────────────────────────────
-        "bg_page":        "#f8f9fa",   # TODO: swap for your light page colour
-        "bg_card":        "#ffffff",   # TODO: swap for your light card colour
-        "bg_card_header": "#f1f3f5",   # TODO: swap for your light card header
+        "bg_page":        "#ffffff",   # white page
+        "bg_card":        "#f8f9fa",   # light grey card body
+        "bg_card_header": "#f0f2f5",   # slightly deeper grey card header
         # ── Text ─────────────────────────────────────────────────────────────
-        "text_primary":   "#212529",   # TODO: swap for your light primary text
-        "text_secondary": "#6c757d",   # TODO: swap for your light muted text
+        "text_primary":   "#1a2366",   # dark navy
+        "text_secondary": "#6c757d",   # muted grey
         # ── Accent ───────────────────────────────────────────────────────────
-        "accent":         "#0d6efd",   # TODO: swap for your light accent colour
+        "accent":         "#1a2366",   # dark navy
         # ── Borders & grids ──────────────────────────────────────────────────
-        "border":         "#dee2e6",   # TODO: swap for your light border colour
-        "grid":           "#e9ecef",   # TODO: swap for your light plot grid
+        "border":         "#dee2e6",   # standard grey border
+        "grid":           "#e9ecef",   # light grey plot grid
         # ── Plotly surface colours ────────────────────────────────────────────
         "plot_bg":        "#ffffff",
         "plot_paper":     "#ffffff",
-        "plot_text":      "#212529",
+        "plot_text":      "#1a2366",
+        # ── Model line colours ────────────────────────────────────────────────
+        "model_colors": {
+            "Combined model": "#005f9e",   # deep accessible blue
+            "Model 1":        "#237523",   # dark green
+            "Model 2":        "#b83232",   # dark red
+        },
         # ── Fonts ─────────────────────────────────────────────────────────────
         # TODO: replace with your chosen font stack, e.g. "'Inter', sans-serif"
         "font_body":      "'Hanken Grotesk', sans-serif",
@@ -260,21 +262,27 @@ THEME = {
     },
     "dark": {
         # ── Backgrounds ──────────────────────────────────────────────────────
-        "bg_page":        "#1a1d21",   # TODO: swap for your dark page colour
-        "bg_card":        "#2b2f35",   # TODO: swap for your dark card colour
-        "bg_card_header": "#22262c",   # TODO: swap for your dark card header
+        "bg_page":        "#0e1540",   # deepest navy page
+        "bg_card":        "#1a2366",   # navy card body
+        "bg_card_header": "#141c55",   # slightly deeper navy card header
         # ── Text ─────────────────────────────────────────────────────────────
-        "text_primary":   "#e9ecef",   # TODO: swap for your dark primary text
-        "text_secondary": "#adb5bd",   # TODO: swap for your dark muted text
+        "text_primary":   "#e8ecf8",   # off-white with a blue tint
+        "text_secondary": "#9aa5cc",   # muted blue-grey
         # ── Accent ───────────────────────────────────────────────────────────
-        "accent":         "#4dabf7",   # TODO: swap for your dark accent colour
+        "accent":         "#7b9fff",   # lighter blue for links/active tabs
         # ── Borders & grids ──────────────────────────────────────────────────
-        "border":         "#3d4249",   # TODO: swap for your dark border colour
-        "grid":           "#3d4249",   # TODO: swap for your dark plot grid
+        "border":         "#2a3480",   # dark navy border
+        "grid":           "#2a3480",   # dark navy plot grid
         # ── Plotly surface colours ────────────────────────────────────────────
-        "plot_bg":        "#2b2f35",
-        "plot_paper":     "#2b2f35",
-        "plot_text":      "#e9ecef",
+        "plot_bg":        "#1a2366",
+        "plot_paper":     "#1a2366",
+        "plot_text":      "#e8ecf8",
+        # ── Model line colours ────────────────────────────────────────────────
+        "model_colors": {
+            "Combined model": "#5bc0f8",   # bright sky blue
+            "Model 1":        "#5dd55d",   # bright green
+            "Model 2":        "#ff6b6b",   # bright coral red
+        },
         # ── Fonts ─────────────────────────────────────────────────────────────
         # TODO: replace with your chosen font stack (can differ from light mode)
         "font_body":      "'Hanken Grotesk', sans-serif",
@@ -299,12 +307,16 @@ _DATE_RANGE_SELECTION = "Select a specific timeline to evaluate how our model’
 _FLASH_ESTIMATE = "Since our model predicts a single quarter’s GDP multiple times as new data arrives, this setting lets you choose which `month of information` to plot against historical results."
 _EVALUATION_METRICS = "Compare the statistical performance of your selected models."
 
-_TOOLTIP_BASE = (
-    "position: fixed; background: white; padding: 1.2rem 1.5rem; "
-    "border-radius: 8px; z-index: 1001; min-width: 240px; max-width: 320px; "
-    "box-shadow: 0 4px 20px rgba(0,0,0,0.4);"
-)
 _BTN_MARGIN = "margin-right: 8px;"
+
+
+def _tooltip_base(t: dict) -> str:
+    return (
+        f"position: fixed; background: {t['bg_card']}; color: {t['text_primary']}; "
+        "padding: 1.2rem 1.5rem; border-radius: 8px; z-index: 1001; "
+        f"min-width: 240px; max-width: 320px; border: 1px solid {t['border']}; "
+        "box-shadow: 0 4px 20px rgba(0,0,0,0.4);"
+    )
 
 
 def _btn_row(step: int):
@@ -336,29 +348,34 @@ def _info_icon(tooltip_text):
     )
 
 
-def _close_btn():
+def _close_btn(t: dict):
     return ui.input_action_button(
         "wizard_close", "×",
         style=(
             "position: absolute; top: 0.75rem; right: 0.75rem; "
             "background: none; border: none; font-size: 1.25rem; "
-            "color: #666; cursor: pointer; padding: 0; line-height: 1;"
+            f"color: {t['text_secondary']}; cursor: pointer; padding: 0; line-height: 1;"
         ),
     )
 
 
-def _centered_modal(header: str, body: str | None, step: int):
-    content = [ui.h3(header, style="margin-bottom: 1rem;")]
+def _centered_modal(header: str, body: str | None, step: int, t: dict, show_logo: bool = False):
+    content = []
+    if show_logo:
+        content.append(ui.img(src="blue_logo.png", style="width: 60px; display: block; margin-bottom: 1rem;"))
+    content.append(ui.h3(header, style="margin-bottom: 1rem;"))
     if body:
         content.append(ui.p(body))
     content.append(_btn_row(step))
     return ui.div(
-        _close_btn(),
+        _close_btn(t),
         *content,
         style=(
             "position: fixed; top: 50%; left: 50%; "
             "transform: translate(-50%, -50%); "
-            "background: white; padding: 2.5rem; border-radius: 10px; "
+            f"background: {t['bg_card']}; color: {t['text_primary']}; "
+            f"border: 1px solid {t['border']}; "
+            "padding: 2.5rem; border-radius: 10px; "
             "min-width: 360px; max-width: 540px; "
             "box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), "
             "0 4px 30px rgba(0,0,0,0.4); "
@@ -367,7 +384,7 @@ def _centered_modal(header: str, body: str | None, step: int):
     )
 
 
-def _spotlight(selector: str, tooltip_pos: str, description: str, step: int):
+def _spotlight(selector: str, tooltip_pos: str, description: str, step: int, t: dict):
     """
     Spotlight overlay: the target element gets a massive box-shadow that
     darkens everything else. A floating tooltip sits next to it.
@@ -384,16 +401,16 @@ def _spotlight(selector: str, tooltip_pos: str, description: str, step: int):
     if step == 6:
         hint = ui.p(
             ui.tags.em("Click the 'Historical Data' tab to continue."),
-            style="margin-top: 0.5rem; font-size: 0.85rem; color: #555;",
+            style=f"margin-top: 0.5rem; font-size: 0.85rem; color: {t['text_secondary']};",
         )
     return ui.div(
         ui.tags.style(css),
         ui.div(
-            _close_btn(),
+            _close_btn(t),
             ui.p(description, style="margin-bottom: 0.25rem;"),
             hint,
             _btn_row(step),
-            style=f"{_TOOLTIP_BASE} {tooltip_pos} position: fixed;",
+            style=f"{_tooltip_base(t)} {tooltip_pos} position: fixed;",
         ),
     )
 
@@ -413,12 +430,16 @@ nowcast_controls = ui.div(
         id="card_quarter",
     ),
     ui.card(
-        ui.card_header(ui.span("Model Selection"), _info_icon(_MODEL_SELECTION)),
+        ui.card_header("Model Selection"),
         ui.input_checkbox_group(
             "nowcast_models",
             None,
             choices=MODELS,
             selected=["Combined model"],
+        ),
+        ui.input_action_button(
+            "view_nowcast_models", "About our models",
+            style="width: 100%; margin-top: 0.25rem;",
         ),
         id="card_nowcast_model",
     ),
@@ -454,6 +475,10 @@ historical_controls = ui.div(
             choices=MODELS,
             selected=["Combined model"],
         ),
+        ui.input_action_button(
+            "view_hist_models", "About our models",
+            style="width: 100%; margin-top: 0.75rem;",
+        ),
         ui.div(ui.strong("FLASH ESTIMATE USED"), _info_icon(_FLASH_ESTIMATE), style="display:inline-flex;align-items:center;"),
         ui.input_select(
             "flash_month",
@@ -481,7 +506,7 @@ _TOOLTIP_CSS = """
 .tt-icon {
     cursor: default;
     font-size: 0.8rem;
-    color: #6c757d;
+    color: #1a2366;
     line-height: 1;
     user-select: none;
 }
@@ -490,8 +515,8 @@ _TOOLTIP_CSS = """
     left: calc(100% + 8px);
     top: 50%;
     transform: translateY(-50%);
-    background: #2b2f35;
-    color: #e9ecef;
+    background: #1a2366;
+    color: #f7f2e8;
     padding: 0.55rem 0.75rem;
     border-radius: 6px;
     font-size: 0.78rem;
@@ -522,8 +547,8 @@ app_ui = ui.page_fluid(
     ui.output_ui("theme_css"),
     ui.output_ui("wizard_ui"),
     ui.output_ui("dm_overlay"),
+    ui.output_ui("models_overlay"),
     ui.div(
-        ui.img(src="blue_logo.png", style="width: 60px;"),
         ui.h1("US GDP Nowcast", style="margin: 0;"),
         ui.div(
             ui.output_ui("dark_mode_btn"),
@@ -562,6 +587,7 @@ def server(input, output, session):
 
     wizard_step = reactive.value(1)
     dm_overlay_visible = reactive.value(False)
+    models_overlay_visible = reactive.value(False)
     is_dark = reactive.value(False)
 
     # ── Theme CSS injection ───────────────────────────────────────────────────
@@ -630,6 +656,14 @@ def server(input, output, session):
         label = "View in light mode" if is_dark.get() else "View in dark mode"
         return ui.input_action_button("toggle_dark_mode", label)
 
+    @render.ui
+    def logo_img():
+        return ui.img(src="blue_logo.png", style="width: 60px;")
+    
+    @render.ui
+    def wordmark_img():
+        return ui.img(src="blue_wordmark.png", style="width: 60px;")
+
     @reactive.effect
     @reactive.event(input.toggle_dark_mode)
     def _on_toggle_dark():
@@ -642,8 +676,9 @@ def server(input, output, session):
         step = wizard_step.get()
         if step == 0:
             return ui.div()
+        t = THEME["dark"] if is_dark.get() else THEME["light"]
         if step == 1:
-            return _centered_modal("US GDP Nowcast", None, step)
+            return _centered_modal("US GDP Nowcast", None, step, t, show_logo=True)
         if step == 2:
             return _centered_modal(
                 "About Nowcasting", _ABOUT_NOWCASTING, step)
@@ -859,7 +894,88 @@ def server(input, output, session):
                 ),
             ),
         )
+    # ── Models overlay show/hide ──────────────────────────────────────────────
 
+    @reactive.effect
+    @reactive.event(input.view_nowcast_models, input.view_hist_models)
+    def _show_models_overlay():
+        models_overlay_visible.set(True)
+
+    @reactive.effect
+    @reactive.event(input.close_models_overlay)
+    def _hide_models_overlay():
+        models_overlay_visible.set(False)
+
+    @render.ui
+    def models_overlay():
+        if not models_overlay_visible.get():
+            return ui.div()
+
+        selected_models = input.nowcast_models() or input.hist_models() or []
+        t = THEME["dark"] if is_dark.get() else THEME["light"]
+
+        # Build model details content
+        model_cards = []
+        for model in selected_models:
+            model_cards.append(
+                ui.div(
+                    ui.h4(model, style="margin-top: 0;"),
+                    ui.p(
+                        f"Details for {model}. Lorem ipsum dolor sit amet, "
+                        "consectetur adipiscing elit.",
+                        style=f"color: {t['text_secondary']}; margin-bottom: 0;",
+                    ),
+                    style=(
+                        f"padding: 1rem; border: 1px solid {t['border']}; "
+                        f"border-radius: 6px; margin-bottom: 0.75rem;"
+                    ),
+                )
+            )
+
+        if not model_cards:
+            model_cards.append(ui.p("No models selected."))
+
+        return ui.div(
+            # Backdrop
+            ui.div(style=(
+                "position: fixed; inset: 0; background: rgba(0,0,0,0.6); "
+                "z-index: 1100;"
+            )),
+            # Panel
+            ui.div(
+                # Header row
+                ui.div(
+                    ui.h3("Model Details", style="margin: 0;"),
+                    ui.input_action_button(
+                        "close_models_overlay", "×",
+                        style=(
+                            "background: none; border: none; font-size: 1.5rem; "
+                            f"color: {t['text_primary']}; cursor: pointer; "
+                            "padding: 0; line-height: 1;"
+                        ),
+                    ),
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;",
+                ),
+                ui.p(
+                    "Review detailed information about your selected models.",
+                    style=f"color: {t['text_secondary']}; margin-bottom: 1.25rem;",
+                ),
+                # Model cards
+                ui.div(
+                    *model_cards,
+                    style="max-height: 60vh; overflow-y: auto;",
+                ),
+                style=(
+                    f"position: fixed; top: 50%; left: 50%; "
+                    "transform: translate(-50%, -50%); "
+                    f"background: {t['bg_card']}; color: {t['text_primary']}; "
+                    "padding: 2rem; border-radius: 10px; "
+                    "z-index: 1101; pointer-events: auto; "
+                    "min-width: 400px; max-width: 85vw; max-height: 85vh; overflow-y: auto; "
+                    f"box-shadow: 0 4px 30px rgba(0,0,0,0.4);"
+                ),
+            ),
+        )
     # ── Keep CI dropdown in sync with selected models ─────────────────────────
 
     @reactive.effect
@@ -892,7 +1008,7 @@ def server(input, output, session):
                         y=data[model],
                         mode="lines+markers",
                         name=model,
-                        line=dict(color=MODEL_COLORS.get(model, "#888"), width=2),
+                        line=dict(color=t["model_colors"].get(model, "#888"), width=2),
                     )
                 )
 
@@ -900,7 +1016,7 @@ def server(input, output, session):
         if ci_model and ci_model != "None" and ci_model in selected_models:
             # TODO: swap get_dummy_confidence_intervals → fetch_confidence_intervals
             x_ci, lower, upper = get_dummy_confidence_intervals(quarter, ci_model)
-            ci_color = MODEL_COLORS.get(ci_model, "#888")
+            ci_color = t["model_colors"].get(ci_model, "#888")
             r, g, b = int(ci_color[1:3], 16), int(ci_color[3:5], 16), int(ci_color[5:7], 16)
             fig.add_trace(
                 go.Scatter(
@@ -965,7 +1081,7 @@ def server(input, output, session):
                         y=predictions[model],
                         mode="lines+markers",
                         name=model,
-                        line=dict(color=MODEL_COLORS.get(model, "#888"), width=2),
+                        line=dict(color=t["model_colors"].get(model, "#888"), width=2),
                     )
                 )
 
@@ -1013,5 +1129,5 @@ def server(input, output, session):
         return ui.div(*content)
 
 
-app = App(app_ui, server)
+app = App(app_ui, server, static_assets=Path(__file__).parent / "www")
 
