@@ -297,6 +297,7 @@ CREATE POLICY "anon can read fred_qd_x"
 --------------------------------------------------------------
 -- TABLE: filled_md
 --------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS filled_md (
     sasdate DATE NOT NULL,
     "RPI_t_md" NUMERIC,
@@ -559,6 +560,28 @@ ALTER TABLE filled_qd ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "anon can read filled_qd" ON filled_qd;
 CREATE POLICY "anon can read filled_qd"
     ON filled_qd
+    FOR SELECT
+    TO anon
+    USING (true);
+
+--------------------------------------------------------------
+-- TABLE: dm_test
+--------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS dm_test (
+    "version" NUMERIC,
+    "model_1" NUMERIC,
+    "model_2" NUMERIC,
+    "test_statistic" NUMERIC,
+    "p_value" NUMERIC,
+    PRIMARY KEY (sasdate)
+);
+
+ALTER TABLE dm_test ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon can read dm_test" ON dm_test;
+CREATE POLICY "anon can read dm_test"
+    ON dm_test
     FOR SELECT
     TO anon
     USING (true);

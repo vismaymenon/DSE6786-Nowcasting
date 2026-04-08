@@ -20,7 +20,8 @@ CSV_FILES = {
     "fred_md": DATA_DIR / "fred_md.csv",
     "fred_qd_x": DATA_DIR / "fred_qd_X.csv",
     "filled_md": DATA_DIR / "filled_md.csv",
-    "filled_qd": DATA_DIR / "filled_qd.csv"
+    "filled_qd": DATA_DIR / "filled_qd.csv",
+    "dm_test": DATA_DIR / "dm_pval_matrix.csv"
 }
 
 # Define the schema type for each column
