@@ -22,7 +22,7 @@ def randomForest(df_X: pd.DataFrame, gdp: pd.Series) -> dict:
       Hyperparameters:
       max_features = 0.3   (rule-of-thumb ~1/3; no CV needed)
       max_depth    = None  (fully grown trees)
-      n_estimators = 500
+      n_estimators = 1000
     """
     X_train = df_X.iloc[:-1]
     y_train = gdp.iloc[:-1].values
