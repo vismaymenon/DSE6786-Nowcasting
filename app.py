@@ -15,7 +15,7 @@ MODEL_DB_NAMES = {
     "RF Lags UMIDAS": "RF_Lags_UMIDAS",
     "LASSO UMIDAS":   "LASSO_UMIDAS",
 }
-
+DEFAULT_MODELS = ["Ensemble"]
 MODELS = list(MODEL_DB_NAMES.keys())
 
 MODEL_COLORS = {
@@ -24,6 +24,14 @@ MODEL_COLORS = {
     "RF Lags UMIDAS": "#d62728",
     "LASSO UMIDAS": "#ff7f0e",
 }
+
+MODEL_DESCRIPTIONS = {
+    "All_Model_Average": "An ensemble model that combines predictions from all other models.",
+    "RF_Lags_Average": "A Random Forest Bridge Equation model using simple quarterly averages of monthly data. Includes lags of the quarterly averages as features.",
+    "RF_Lags_UMIDAS": "A Random Forest using U-MIDAS to treat each monthly observation as a distinct input. Includes lags of the quarterly averages as features.",
+    "LASSO_UMIDAS": "A Regularized U-MIDAS regression using monthly variables from the current quarter only.",
+}
+
 def to_db_names(display_names: list[str]) -> list[str]:
     """Translate a list of display names to DB names for fetch functions."""
     return [MODEL_DB_NAMES[m] for m in display_names if m in MODEL_DB_NAMES]
@@ -77,10 +85,10 @@ THEME = {
         "plot_text":      "#1a2366",
         # ── Model line colours ────────────────────────────────────────────────
         "model_colors": {
-            "All_Model_Average": "#005f9e",   # deep accessible blue
-            "RF_Lags_Average":        "#237523",   # dark green
-            "RF_Lags_UMIDAS":        "#b83232",   # dark red
-            "LASSO_UMIDAS":        "#f7c948",   # bright yellow
+            "Ensemble":           "#005f9e",   # deep accessible blue
+            "RF Lags Avg":        "#237523",   # dark green
+            "RF Lags UMIDAS":        "#b83232",   # dark red
+            "LASSO UMIDAS":        "#f7c948",   # bright yellow
         },
         # ── Button hover ─────────────────────────────────────────────────────
         "btn_hover":      "#e2e6ea",   # slightly darker than bg_card_header
@@ -111,10 +119,10 @@ THEME = {
         "plot_text":      "#e9ecef",
         # ── Model line colours ────────────────────────────────────────────────
         "model_colors": {
-            "All_Model_Average": "#5bc0f8",
-            "RF_Lags_Average":        "#5dd55d",
-            "RF_Lags_UMIDAS":        "#ff6b6b",
-            "LASSO_UMIDAS":        "#f7c948",
+            "Ensemble": "#5bc0f8",
+            "RF Lags Avg":        "#5dd55d",
+            "RF Lags UMIDAS":        "#ff6b6b",
+            "LASSO UMIDAS":        "#f7c948",
         },
         # ── Button hover ─────────────────────────────────────────────────────
         "btn_hover":      "#2e333a",   # slightly lighter than bg_card_header
@@ -417,7 +425,7 @@ $(document).one('shiny:idle', function() {
     var el = document.getElementById('loading-screen');
     if (el) {
         el.classList.add('fade-out');
-        setTimeout(function() { el.remove(); }, 1000);
+        setTimeout(function() { el.remove(); }, 1500);
     }
 });
 """
@@ -730,14 +738,16 @@ def server(input, output, session):
             f"text-align: center; font-weight: normal; color: {t['text_primary']};")
 
         header_row_cells = [ui.tags.th("", style=header_style)]
-        for m in db_models:
+        for m in selected_models:
             header_row_cells.append(ui.tags.th(m, style=header_style))
 
         data_rows = []
-        for m1 in db_models:
+        for m1 in selected_models:
             row_cells = [ui.tags.th(m1, style=header_style)]
-            for m2 in db_models:
-                val = matrix.get((m1, m2))
+            db_m1 = MODEL_DB_NAMES.get(m1)
+            for m2 in selected_models:
+                db_m2 = MODEL_DB_NAMES.get(m2)
+                val = matrix.get((db_m1, db_m2))
                 if val is None:
                     row_cells.append(ui.tags.td("", style=diag_style))
                 else:
@@ -756,8 +766,9 @@ def server(input, output, session):
         )
         rmse_lines = [_rmse_label]
         for model in selected_models:
-            if model in metrics:
-                rmse_lines.append(ui.p(f"{model}: {metrics[model]['rmse']:.1f}"))
+            db_name = MODEL_DB_NAMES.get(model)
+            if db_name is not None and db_name in metrics:
+                rmse_lines.append(ui.p(f"{model}: {metrics[db_name]['rmse']:.1f}"))
 
         return ui.div(
             # Backdrop
@@ -924,14 +935,15 @@ def server(input, output, session):
         # Shaded confidence intervals (50% and 80%)
         if ci_model and ci_model != "None" and ci_model in selected_models:
             db_ci_model = MODEL_DB_NAMES.get(ci_model)
-            x_ci, _ci50_lo, _ci50_hi, _ci80_lo, _ci80_hi = fetch_confidence_intervals(quarter, db_ci_model)
+            if db_ci_model is not None:
+                x_ci, ci50_lo, ci50_hi, ci80_lo, ci80_hi = fetch_confidence_intervals(quarter, db_ci_model)
             ci_color = MODEL_COLORS.get(ci_model, "#888")
             r, g, b = int(ci_color[1:3], 16), int(ci_color[3:5], 16), int(ci_color[5:7], 16)
             # 80% band (wider, more transparent) — drawn first so 50% renders on top
             fig.add_trace(
                 go.Scatter(
                     x=x_ci + x_ci[::-1],
-                    y=_ci80_hi + _ci80_lo[::-1],
+                    y=ci80_hi + ci80_lo[::-1],
                     fill="toself",
                     fillcolor=f"rgba({r},{g},{b},0.12)",
                     line=dict(color="rgba(0,0,0,0)"),
@@ -943,7 +955,7 @@ def server(input, output, session):
             fig.add_trace(
                 go.Scatter(
                     x=x_ci + x_ci[::-1],
-                    y=upper_50 + lower_50[::-1],
+                    y=ci50_hi + ci50_lo[::-1],
                     fill="toself",
                     fillcolor=f"rgba({r},{g},{b},0.25)",
                     line=dict(color="rgba(0,0,0,0)"),
@@ -996,11 +1008,12 @@ def server(input, output, session):
 
         # Model predictions — solid lines
         for model in selected_models:
-            if model in predictions:
+            db_name = MODEL_DB_NAMES.get(model)
+            if db_name is not None and db_name in predictions:
                 fig.add_trace(
                     go.Scatter(
                         x=quarters,
-                        y=predictions[model],
+                        y=predictions[db_name],
                         mode="lines+markers",
                         name=model,
                         line=dict(color=t["model_colors"].get(model, "#888"), width=2),
@@ -1028,6 +1041,7 @@ def server(input, output, session):
             return ui.p("No models selected.")
 
         # TODO: swap get_dummy_metrics → fetch_evaluation_metrics when Supabase ready
+        db_models = to_db_names(selected_models)
         metrics = fetch_rmse(db_models)
 
         rmse_lines = []

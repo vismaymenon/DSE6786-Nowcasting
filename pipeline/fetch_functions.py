@@ -224,7 +224,9 @@ def fetch_dm(models: list[str], flash_month: int) -> dict[tuple[str, str], float
             if m1 == m2:
                 matrix[(m1, m2)] = None
                 continue
- 
+            if (m1,m2) in matrix:
+                continue  # already fetched the symmetric value
+
             result = supabase.table("dm_test") \
                 .select("p_value") \
                 .eq("model_1", m1) \
@@ -232,6 +234,18 @@ def fetch_dm(models: list[str], flash_month: int) -> dict[tuple[str, str], float
                 .eq("version", flash_month) \
                 .execute()
  
-            matrix[(m1, m2)] = result.data[0]["p_value"] if result.data else None
+            if result.data:
+                p_value = result.data[0]["p_value"]
+            else:
+                result_rev = supabase.table("dm_test") \
+                    .select("p_value") \
+                    .eq("model_1", m2) \
+                    .eq("model_2", m1) \
+                    .eq("version", flash_month) \
+                    .execute()
+                p_value = result_rev.data[0]["p_value"] if result_rev.data else None
+
+            matrix[(m1, m2)] = p_value
+            matrix[(m2, m1)] = p_value
  
     return matrix
