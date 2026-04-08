@@ -326,31 +326,6 @@ def build_X_AR(n_lags: int = 2) -> tuple:
     print(f"X_AR ({n_lags} lags):          {X.shape[0]} quarters × {X.shape[1]} features")
     return X, y
 
-
-# =============================================================================
-# X_RF_BENCH — BENCHMARK RF (4 GDP lags)
-# =============================================================================
-
-def build_X_RF_bench(n_lags: int = 4) -> tuple:
-    """
-    X_RF_bench: 4 quarterly lags of GDP growth as features.
-    Used by the benchmark RF model.
-
-    Uses flash-filled GDP so that the t row (e.g. Q1 2026) has valid
-    lag features even when t-1 GDP (e.g. Q4 2025) is not yet released.
-    """
-    y_gdp = _load_gdp_with_flash()
-    df = y_gdp.rename("gdp_growth").to_frame()
-    for lag in range(1, n_lags + 1):
-        df[f"lag_{lag}"] = df["gdp_growth"].shift(lag)
-    lag_cols = [f"lag_{i}" for i in range(1, n_lags + 1)]
-    df = df[df[lag_cols].notna().all(axis=1)]
-    X = df[lag_cols]
-    y = df["gdp_growth"]
-    print(f"X_RF_bench ({n_lags} lags):    {X.shape[0]} quarters × {X.shape[1]} features")
-    return X, y
-
-
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -365,7 +340,6 @@ if __name__ == "__main__":
     X3, y3             = build_X3(df_md, df_qd)
     X4, y4             = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
     X_AR, y_AR         = build_X_AR(n_lags=2)
-    X_RF_bench, y_RF_bench = build_X_RF_bench(n_lags=4)
 
     datasets = [
         ("X1",       X1,       y1),
@@ -373,7 +347,6 @@ if __name__ == "__main__":
         ("X3",       X3,       y3),
         ("X4",       X4,       y4),
         ("X_AR",     X_AR,     y_AR),
-        ("X_RF_bench", X_RF_bench, y_RF_bench),
     ]
 
     print("\n=== Saving to CSV ===")
