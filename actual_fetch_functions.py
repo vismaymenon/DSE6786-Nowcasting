@@ -141,7 +141,7 @@ def fetch_historical_data(start_date, end_date) -> tuple[list[str], list[float],
     return quarter_labels, actual_values, predictions
 
 ######## Function 5: Fetch Evaluation Metrics (RMSE) ########
-## The following function fetches RMSE values for a single mode ##
+## The following function fetches RMSE values for a single model ##
 def fetch_rmse(model: str, version: int) -> dict:
     
     # Step 1: Query Supabase for all rows matching requested models
@@ -153,3 +153,18 @@ def fetch_rmse(model: str, version: int) -> dict:
     
     row = result.data[0]
     return {"model": row["model"], "version": row["version"], "rmse": row["rmse"]}
+
+######## Function 5: Fetch Evaluation Metrics (DM) ########
+## The following function fetches DM values for a pairwise comparison of two model ##
+def fetch_dm(model_1: str, model_2: str, p_value: float) -> dict:
+    
+    # Step 1: Query Supabase for all rows matching requested models
+    result = supabase.table("dm_test") \
+        .select("model_1", "model_2", "p_value", "test_statistic") \
+        .eq("model_1", model_1) \
+        .eq("model_2", model_2) \
+        .eq("p_value", p_value) \
+        .execute()
+    
+    row = result.data[0]
+    return {"model_1": row["model_1"], "model_2": row["model_2"], "p_value": row["p_value"], "test_statistic": row["test_statistic"]}
