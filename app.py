@@ -4,7 +4,7 @@ from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 import numpy as np
 from datetime import date
-from pipeline.fetch_functions import fetch_nowcast_data, fetch_confidence_intervals, fetch_historical_data, fetch_rmse, fetch_dm
+from pipeline.fetch_functions import fetch_nowcast_data, fetch_confidence_intervals, fetch_historical_data, fetch_rmse, fetch_dm, fetch_realised_gdp
 
 import calendar
 from datetime import date
@@ -1003,7 +1003,32 @@ def server(input, output, session):
                     showlegend=True,
                 )
             )
-
+        realised = fetch_realised_gdp(quarter)
+        if realised is not None:
+            fig.add_hline(
+                y=realised,
+                line_dash="dash",
+                line_color=t["text_secondary"],
+                line_width=1.5,
+                annotation_text=f"Realised GDP: {realised:.1f}%",
+                annotation_position="top left",
+                annotation_font_color=t["text_secondary"],
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=[x_labels[-1]],
+                    y=[realised],
+                    mode="markers",
+                    name="Realised GDP",
+                    marker=dict(
+                        color=t["text_secondary"],
+                        size=12,
+                        symbol="diamond",
+                        line=dict(color=t["plot_text"], width=1.5),
+                    ),
+                    hovertemplate="Realised GDP: %{y:.2f}%<extra></extra>",
+                )
+            )
         fig.update_layout(
             yaxis_title="% annual GDP growth",
             plot_bgcolor=t["plot_bg"],

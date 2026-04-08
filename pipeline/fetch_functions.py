@@ -249,3 +249,13 @@ def fetch_dm(models: list[str], flash_month: int) -> dict[tuple[str, str], float
             matrix[(m2, m1)] = p_value
  
     return matrix
+
+def fetch_realised_gdp(quarter: str) -> float | None:
+    quarter_start = quarter_to_dates(quarter)
+    result = supabase.table("gdp") \
+        .select("GDPC1_t") \
+        .eq("sasdate", quarter_start) \
+        .execute()
+    if result.data:
+        return result.data[0]["GDPC1_t"]
+    return None
