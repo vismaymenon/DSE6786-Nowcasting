@@ -26,10 +26,10 @@ MODEL_COLORS = {
 }
 
 MODEL_DESCRIPTIONS = {
-    "All_Model_Average": "An ensemble model that combines predictions from all other models.",
-    "RF_Lags_Average": "A Random Forest Bridge Equation model using simple quarterly averages of monthly data. Includes lags of the quarterly averages as features.",
-    "RF_Lags_UMIDAS": "A Random Forest using U-MIDAS to treat each monthly observation as a distinct input. Includes lags of the quarterly averages as features.",
-    "LASSO_UMIDAS": "A Regularized U-MIDAS regression using monthly variables from the current quarter only.",
+    "Ensemble": "An ensemble model that combines predictions from all other models.",
+    "RF Lags Avg": "A Random Forest Bridge Equation model using simple quarterly averages of monthly data. Includes lags of the quarterly averages as features.",
+    "RF Lags UMIDAS": "A Random Forest using U-MIDAS to treat each monthly observation as a distinct input. Includes lags of the quarterly averages as features.",
+    "LASSO UMIDAS": "A Regularized U-MIDAS regression using monthly variables from the current quarter only.",
 }
 
 def to_db_names(display_names: list[str]) -> list[str]:
@@ -309,8 +309,8 @@ historical_controls = ui.div(
         ui.input_date_range(
             "hist_date_range",
             None,
-            start="2019-01-01",
-            end="2020-03-01",
+            start="2022-01-01",
+            end="2026-03-01",
         ),
         id="card_date_range",
     ),
