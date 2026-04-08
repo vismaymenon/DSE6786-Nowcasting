@@ -211,12 +211,12 @@ def get_dummy_metrics(models: list[str]):
 
 
 _DUMMY_DM_MATRIX = {
-    ("All_Model_Average", "RF_Lags_Average"): 0.12,
-    ("All_Model_Average", "RF_Lags_UMIDAS"): 0.24,
-    ("RF_Lags_Average", "RF_Lags_UMIDAS"):  0.35,
-    ("All_Model_Average", "LASSO_UMIDAS"): 0.18,
-    ("RF_Lags_Average", "LASSO_UMIDAS"): 0.28,
-    ("RF_Lags_UMIDAS", "LASSO_UMIDAS"): 0.32,
+    ("All_Model_Average", "RF_Lags_Average"): 0.21,
+    ("All_Model_Average", "RF_Lags_UMIDAS"): 0.25,
+    ("RF_Lags_Average", "RF_Lags_UMIDAS"):  0.10,
+    ("All_Model_Average", "LASSO_UMIDAS"): 0.24,
+    ("RF_Lags_Average", "LASSO_UMIDAS"): 0.72,
+    ("RF_Lags_UMIDAS", "LASSO_UMIDAS"): 0.29,
 
 }
 
@@ -988,7 +988,7 @@ def server(input, output, session):
                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;",
                 ),
                 ui.p(
-                    "The Diebold-Mariano test allows us to check whether one model performs significantly better than another. If one model has a lower RMSE than another, but their DM test p-value > significance level of 0.05, this difference in performance is taken to not be significant.",
+                    "The Diebold-Mariano test allows us to check whether one model performs significantly better than another. If one model has a lower RMSE than another, but their DM test p-value > significance level of 0.1, this difference in performance is taken to not be significant.",
                     style=f"color: {t['text_secondary']}; margin-bottom: 1.25rem;",
                 ),
                 # Two columns
