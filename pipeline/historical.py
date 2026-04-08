@@ -127,31 +127,31 @@ def push_evaluation_to_supabase(client, models: list, version: int, run_date=Non
 
 
 BUILD_REGISTRY = {
-    # "AR_Benchmark":      "X_AR",
-    # "RF_Lags_Average":   "X2",
-    # "RF_Lags_UMIDAS":    "X4",
-    # "LASSO_UMIDAS":      "X3",
-    # "LASSO_Average":     "X1",
+    "AR_Benchmark":      "X_AR",
+    "RF_Lags_Average":   "X2",
+    "RF_Lags_UMIDAS":    "X4",
+    "LASSO_UMIDAS":      "X3",
+    "LASSO_Average":     "X1",
     "LASSO_Lags_Average": "X2",
 }
 
 MODEL_REGISTRY: dict[str, dict] = {
-    # "AR_Benchmark": {
-    #     "model": ar_model_nowcast
-    # },
-    # "RF_Lags_Average": {
-    #     "model": randomForest
-    # },
-    # "RF_Lags_UMIDAS": {
-    #     "model": randomForest
-    # },
-    # "LASSO_UMIDAS": {
-    #     "model": fit_lasso
-    # },
-    # "LASSO_Average": {
-    #     "model": fit_lasso
+    "AR_Benchmark": {
+        "model": ar_model_nowcast
+    },
+    "RF_Lags_Average": {
+        "model": randomForest
+    },
+    "RF_Lags_UMIDAS": {
+        "model": randomForest
+    },
+    "LASSO_UMIDAS": {
+        "model": fit_lasso
+    },
+    "LASSO_Average": {
+        "model": fit_lasso
 
-    # },
+    },
     "LASSO_Lags_Average": {
         "model": fit_lasso
     }

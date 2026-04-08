@@ -82,12 +82,16 @@ def compare_model_pairs(df, time_col='quarter_date', **dm_kwargs):
                 'test_statistic': final_stat,
                 'p_value': pval
             })
-
+        
         except Exception:
             continue
+    
+    results = pd.DataFrame(results)
+    results["model_1"] = results["model_1"].str[:-3]
+    results["model_2"] = results["model_2"].str[:-3]
 
     # Return sorted by version, then by highest significance (lowest p-value)
-    return pd.DataFrame(results).sort_values(['version', 'p_value'])
+    return results.sort_values(['version', 'p_value'])
 
 def dm_test(
     y_actual: np.ndarray,
