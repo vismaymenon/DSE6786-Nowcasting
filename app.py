@@ -3,213 +3,34 @@ from shinywidgets import output_widget, render_widget
 import plotly.graph_objects as go
 import numpy as np
 from datetime import date
-
-# =============================================================================
-# SUPABASE INTEGRATION — plug in real queries here when ready
-# Expected Supabase table schemas are documented in each function.
-# =============================================================================
-
-def fetch_nowcast_data(quarter: str) -> dict[str, list[float]]:
-    """
-    Fetch nowcast model predictions for a given quarter.
-
-    Supabase table: nowcast_predictions
-      - quarter     TEXT   e.g. '2026:Q1'
-      - model       TEXT   e.g. 'Combined model', 'Model 1', 'Model 2'
-      - month_label TEXT   e.g. 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'
-      - month_order INT    1–6 (for sorting)
-      - value       FLOAT  % annual GDP growth prediction
-
-    Returns: {model_name: [val_month1, ..., val_month6]}, [month_labels]
-    """
-    raise NotImplementedError("Replace with Supabase query")
-
-
-def fetch_nowcast_x_labels(quarter: str) -> list[str]:
-    """
-    Fetch the ordered month labels for the x-axis of a given quarter.
-    (Could be derived from fetch_nowcast_data, kept separate for flexibility.)
-    """
-    raise NotImplementedError("Replace with Supabase query")
-
-
-def fetch_confidence_intervals(
-    quarter: str, model: str
-) -> tuple[list[str], list[float], list[float]]:
-    """
-    Fetch confidence interval bounds for a model/quarter.
-
-    Supabase table: confidence_intervals
-      - quarter   TEXT
-      - model     TEXT
-      - month_label TEXT
-      - month_order INT
-      - lower     FLOAT
-      - upper     FLOAT
-
-    Returns: (month_labels, lower_bounds, upper_bounds)
-    """
-    raise NotImplementedError("Replace with Supabase query")
-
-
-def fetch_historical_data(
-    start_date, end_date, flash_month: int
-) -> tuple[list[str], list[float], dict[str, list[float]]]:
-    """
-    Fetch historical actuals and model predictions.
-
-    flash_month: which monthly flash estimate to use (1, 2, or 3)
-
-    Supabase tables:
-      historical_actuals
-        - quarter  TEXT
-        - value    FLOAT  (actual % annual GDP growth)
-
-      historical_predictions
-        - quarter     TEXT
-        - model       TEXT
-        - flash_month INT   (1, 2, or 3 — month within the quarter)
-        - value       FLOAT
-
-    Returns: (quarter_labels, actual_values, {model: [values]})
-    """
-    raise NotImplementedError("Replace with Supabase query")
-
-
-def fetch_evaluation_metrics(models: list[str]) -> dict[str, dict]:
-    """
-    Fetch model evaluation metrics.
-
-    Supabase table: evaluation_metrics
-      - model        TEXT
-      - rmse         FLOAT
-      - dm_statistic FLOAT
-
-    Returns: {model_name: {'rmse': float, 'dm_statistic': float}}
-    """
-    raise NotImplementedError("Replace with Supabase query")
-
-
-def fetch_dm_matrix(models: list[str]) -> dict[tuple[str, str], float | None]:
-    """
-    Fetch pairwise DM test statistics.
-
-    Supabase table: dm_statistics
-      - model_a  TEXT
-      - model_b  TEXT
-      - dm_stat  FLOAT
-
-    Returns: {(model_a, model_b): dm_stat} for all i≠j pairs; diagonal not included.
-    """
-    raise NotImplementedError("Replace with Supabase query")
-
-
-# =============================================================================
-# DUMMY DATA — delete this entire block when Supabase is connected,
-# and replace each get_dummy_* call in the server with the fetch_* equivalent.
-# =============================================================================
+from pipeline.fetch_functions import fetch_nowcast_data, fetch_confidence_intervals, fetch_historical_data, fetch_rmse, fetch_dm
 
 QUARTERS = ["2026:Q1", "2025:Q4"]
-MODELS = ["Combined model", "Model 1", "Model 2"]
+
+# Display name -> database name mapping
+MODEL_DB_NAMES = {
+    "Ensemble":       "All_Model_Average",
+    "RF Lags Avg":    "RF_Lags_Average",
+    "RF Lags UMIDAS": "RF_Lags_UMIDAS",
+    "LASSO UMIDAS":   "LASSO_UMIDAS",
+}
+
+MODELS = list(MODEL_DB_NAMES.keys())
+
 MODEL_COLORS = {
-    "Combined model": "#1f77b4",
-    "Model 1": "#2ca02c",
-    "Model 2": "#d62728",
+    "Ensemble": "#1f77b4",
+    "RF Lags Avg": "#2ca02c",
+    "RF Lags UMIDAS": "#d62728",
+    "LASSO UMIDAS": "#ff7f0e",
 }
+def to_db_names(display_names: list[str]) -> list[str]:
+    """Translate a list of display names to DB names for fetch functions."""
+    return [MODEL_DB_NAMES[m] for m in display_names if m in MODEL_DB_NAMES]
 
-_NOWCAST_X = ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03"]
-
-_NOWCAST_Y = {
-    "2026:Q1": {
-        "Combined model": [None, None, None, 2.5, 2.4, 2.6],
-        "Model 1":        [None, None, None, 2.3, 2.2, 2.4],
-        "Model 2":        [None, None, None, 2.7, 2.6, 2.8],
-    },
-    "2025:Q4": {
-        "Combined model": [1.9, 2.0, 2.1, 2.2, 2.3, 2.5],
-        "Model 1":        [1.7, 1.8, 1.9, 2.0, 2.1, 2.3],
-        "Model 2":        [2.0, 2.2, 2.3, 2.4, 2.5, 2.7],
-    },
-}
-# Default fallback for quarters without specific dummy data
-for _q in ["2025:Q3", "2025:Q2"]:
-    _NOWCAST_Y[_q] = _NOWCAST_Y["2025:Q4"]
-
-
-def get_dummy_nowcast_data(quarter: str):
-    """Dummy nowcast data — replace with fetch_nowcast_data(quarter)."""
-    return _NOWCAST_Y.get(quarter, _NOWCAST_Y["2026:Q1"]), _NOWCAST_X
-
-
-def get_dummy_confidence_intervals(quarter: str, model: str):
-    """Dummy CI data — replace with fetch_confidence_intervals(quarter, model)."""
-    base = _NOWCAST_Y.get(quarter, _NOWCAST_Y["2026:Q1"]).get(model, [2.0] * 6)
-    labels, lower, upper = [], [], []
-    for x, v in zip(_NOWCAST_X, base):
-        if v is not None:
-            labels.append(x)
-            lower.append(v - 0.35)
-            upper.append(v + 0.35)
-    return labels, lower, upper
-
-
-_HIST_QUARTERS = [
-    "2020:Q1", "2020:Q2", "2020:Q3", "2020:Q4", "2021:Q1", "2021:Q2"
-]
-_HIST_ACTUAL = [2.3, -5.0, -31.4, 33.4, 6.3, 6.7]
-_HIST_PREDS = {
-    "Combined model": [2.5, -4.8, -30.9, 32.8, 6.1, 6.5],
-    "Model 1":        [2.2, -4.5, -31.0, 33.0, 6.0, 6.4],
-    "Model 2":        [2.7, -5.2, -31.8, 33.8, 6.5, 6.9],
-}
-# Simulate slight differences per flash month
-_HIST_PREDS_BY_MONTH = {
-    1: _HIST_PREDS,
-    2: {m: [v + 0.1 for v in vals] for m, vals in _HIST_PREDS.items()},
-    3: {m: [v + 0.2 for v in vals] for m, vals in _HIST_PREDS.items()},
-}
-
-_DUMMY_METRICS = {
-    "Combined model": {"rmse": 1.2, "dm_statistic": 0.8},
-    "Model 1":        {"rmse": 1.5, "dm_statistic": 1.1},
-    "Model 2":        {"rmse": 1.4, "dm_statistic": 0.9},
-}
-
-
-def get_dummy_historical_data(start_date, end_date, flash_month: int):
-    """Dummy historical data — replace with fetch_historical_data(...)."""
-    return _HIST_QUARTERS, _HIST_ACTUAL, _HIST_PREDS_BY_MONTH.get(flash_month, _HIST_PREDS)
-
-
-def get_dummy_metrics(models: list[str]):
-    """Dummy metrics — replace with fetch_evaluation_metrics(models)."""
-    return {m: _DUMMY_METRICS[m] for m in models if m in _DUMMY_METRICS}
-
-
-_DUMMY_DM_MATRIX = {
-    ("Combined model", "Model 1"): 0.12,
-    ("Combined model", "Model 2"): 0.24,
-    ("Model 1", "Model 2"):        0.35,
-}
-
-
-def get_dummy_dm_matrix(models: list[str]):
-    """Dummy DM matrix — replace with fetch_dm_matrix(models)."""
-    result = {}
-    for m1 in models:
-        for m2 in models:
-            if m1 == m2:
-                result[(m1, m2)] = None
-            else:
-                key = (m1, m2) if (m1, m2) in _DUMMY_DM_MATRIX else (m2, m1)
-                result[(m1, m2)] = _DUMMY_DM_MATRIX.get(key)
-    return result
-
-
-# =============================================================================
-# END DUMMY DATA
-# =============================================================================
-
+def from_db_name(db_name: str) -> str:
+    """Translate a single DB name back to its display name."""
+    return {v: k for k, v in MODEL_DB_NAMES.items()}.get(db_name, db_name)
+ 
 
 # =============================================================================
 # THEME — edit colours and fonts here
@@ -711,12 +532,12 @@ def server(input, output, session):
             return ui.div()
 
         selected_models = input.hist_models() or []
+        flash_month = int(input.flash_month() or "1")
         t = THEME["dark"] if is_dark.get() else THEME["light"]
+        db_models = to_db_names(selected_models)
 
-        # TODO: swap get_dummy_dm_matrix → fetch_dm_matrix when Supabase ready
-        matrix = get_dummy_dm_matrix(selected_models)
-        # TODO: swap get_dummy_metrics → fetch_evaluation_metrics when Supabase ready
-        metrics = get_dummy_metrics(selected_models)
+        matrix = fetch_dm(db_models,flash_month)
+        metrics = fetch_rmse(db_models)
 
         # Build DM matrix table
         cell_style = (
@@ -726,17 +547,16 @@ def server(input, output, session):
         diag_style = cell_style + f" background-color: {t['bg_card_header']};"
         header_style = (
             f"border: 1px solid {t['border']}; padding: 0.5rem 1rem; "
-            f"text-align: center; font-weight: normal; color: {t['text_primary']};"
-        )
+            f"text-align: center; font-weight: normal; color: {t['text_primary']};")
 
         header_row_cells = [ui.tags.th("", style=header_style)]
-        for m in selected_models:
+        for m in db_models:
             header_row_cells.append(ui.tags.th(m, style=header_style))
 
         data_rows = []
-        for m1 in selected_models:
+        for m1 in db_models:
             row_cells = [ui.tags.th(m1, style=header_style)]
-            for m2 in selected_models:
+            for m2 in db_models:
                 val = matrix.get((m1, m2))
                 if val is None:
                     row_cells.append(ui.tags.td("", style=diag_style))
@@ -826,16 +646,17 @@ def server(input, output, session):
         t = THEME["dark"] if is_dark.get() else THEME["light"]
 
         # TODO: swap get_dummy_nowcast_data → fetch_nowcast_data when Supabase ready
-        data, x_labels = get_dummy_nowcast_data(quarter)
+        data, x_labels = fetch_nowcast_data(quarter)
 
         fig = go.Figure()
 
         for model in selected_models:
-            if model in data:
+            db_name = MODEL_DB_NAMES.get(model)
+            if db_name is not None and db_name in data:
                 fig.add_trace(
                     go.Scatter(
                         x=x_labels,
-                        y=data[model],
+                        y=data[db_name],
                         mode="lines+markers",
                         name=model,
                         line=dict(color=MODEL_COLORS.get(model, "#888"), width=2),
@@ -844,14 +665,14 @@ def server(input, output, session):
 
         # Shaded confidence interval
         if ci_model and ci_model != "None" and ci_model in selected_models:
-            # TODO: swap get_dummy_confidence_intervals → fetch_confidence_intervals
-            x_ci, lower, upper = get_dummy_confidence_intervals(quarter, ci_model)
+            db_ci_model = MODEL_DB_NAMES.get(ci_model)
+            x_ci, _ci50_lo, _ci50_hi, _ci80_lo, _ci80_hi = fetch_confidence_intervals(quarter, db_ci_model)
             ci_color = MODEL_COLORS.get(ci_model, "#888")
             r, g, b = int(ci_color[1:3], 16), int(ci_color[3:5], 16), int(ci_color[5:7], 16)
             fig.add_trace(
                 go.Scatter(
                     x=x_ci + x_ci[::-1],
-                    y=upper + lower[::-1],
+                    y=_ci80_hi + _ci80_lo[::-1],
                     fill="toself",
                     fillcolor=f"rgba({r},{g},{b},0.15)",
                     line=dict(color="rgba(0,0,0,0)"),
@@ -884,9 +705,9 @@ def server(input, output, session):
         t = THEME["dark"] if is_dark.get() else THEME["light"]
 
         # TODO: swap get_dummy_historical_data → fetch_historical_data when Supabase ready
-        quarters, actual, predictions = get_dummy_historical_data(
-            start_date, end_date, flash_month
-        )
+        quarters, actual, predictions = fetch_historical_data(
+                    start_date, end_date, flash_month
+                )
 
         fig = go.Figure()
 
@@ -936,13 +757,14 @@ def server(input, output, session):
             return ui.p("No models selected.")
 
         # TODO: swap get_dummy_metrics → fetch_evaluation_metrics when Supabase ready
-        metrics = get_dummy_metrics(selected_models)
+        metrics = fetch_rmse(db_models)
 
         rmse_lines = []
         for model in selected_models:
-            if model not in metrics:
+            db_name = MODEL_DB_NAMES.get(model)
+            if db_name not in metrics:
                 continue
-            m = metrics[model]
+            m = metrics[db_name]
             rmse_lines.append(ui.div(f"{model}: {m['rmse']:.1f}"))
 
         if not rmse_lines:
