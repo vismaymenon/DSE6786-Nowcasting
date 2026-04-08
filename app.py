@@ -290,14 +290,14 @@ THEME = {
 # ── Onboarding wizard helpers ─────────────────────────────────────────────────
 
 
-_ABOUT_NOWCASTING = "Lorem ipsum dolor sit amet"
-_QUARTER_SELECTION = "Lorem ipsum dolor sit amet"
-_MODEL_SELECTION = "Lorem ipsum dolor sit amet"
-_CONFIDENCE_INTERVAL = "Lorem ipsum dolor sit amet"
-_HISTORICAL_DATA = "Lorem ipsum dolor sit amet"
-_DATE_RANGE_SELECTION = "Lorem ipsum dolor sit amet"
-_FLASH_ESTIMATE = "Lorem ipsum dolor sit amet"
-_EVALUATION_METRICS = "Lorem ipsum dolor sit amet"
+_ABOUT_NOWCASTING = "Traditional GDP data is released with a significant delay, leaving policymakers and businesses flying blind for months. Nowcasting solves this by using higher-frequency indicators—like retail sales and industrial output—to provide a real-time estimate of economic growth. By bridging this gap, we can identify turning points in the business cycle in real time, rather than after a delay."
+_QUARTER_SELECTION = "Toggle between quarters to view their evolving GDP Nowcast. Each data point on the timeline represents a new prediction for that quarter's growth, updated monthly as fresh economic indicators provide information that wasn't available in previous months."
+_MODEL_SELECTION = "Select one or more models to compare different econometric approaches simultaneously. By default, the Ensemble Model is displayed, providing a balanced view by aggregating inputs from multiple sub-models."
+_CONFIDENCE_INTERVAL = "Visualise the uncertainty of a model by toggling its Confidence Intervals. To maintain clarity on the chart, you can view the probability bands for only one model at a time."
+_HISTORICAL_DATA = "Curious about how the model performs historically?"
+_DATE_RANGE_SELECTION = "Select a specific timeline to evaluate how our model’s historical Nowcasts tracked against official Realised GDP. This view helps to visualise the model’s accuracy and bias during past economic cycles or periods of high volatility."
+_FLASH_ESTIMATE = "Since our model predicts a single quarter’s GDP multiple times as new data arrives, this setting lets you choose which `month of information` to plot against historical results."
+_EVALUATION_METRICS = "Compare the statistical performance of your selected models."
 
 _TOOLTIP_BASE = (
     "position: fixed; background: white; padding: 1.2rem 1.5rem; "
@@ -325,6 +325,15 @@ def _btn_row(step: int):
     else:
         buttons.append(ui.input_action_button("wizard_next", "\u2192"))
     return ui.div(*buttons, style="margin-top: 1rem;")
+
+
+def _info_icon(tooltip_text):
+    """Inline ⓘ icon that shows a floating tooltip on hover."""
+    return ui.span(
+        ui.tags.span("ⓘ", class_="tt-icon"),
+        ui.tags.span(tooltip_text, class_="tt-box"),
+        class_="tt-wrap",
+    )
 
 
 def _close_btn():
@@ -404,7 +413,7 @@ nowcast_controls = ui.div(
         id="card_quarter",
     ),
     ui.card(
-        ui.card_header("Model Selection"),
+        ui.card_header(ui.span("Model Selection"), _info_icon(_MODEL_SELECTION)),
         ui.input_checkbox_group(
             "nowcast_models",
             None,
@@ -414,7 +423,7 @@ nowcast_controls = ui.div(
         id="card_nowcast_model",
     ),
     ui.card(
-        ui.card_header("Confidence Interval"),
+        ui.card_header(ui.span("Confidence Interval"), _info_icon(_CONFIDENCE_INTERVAL)),
         ui.input_select(
             "ci_model",
             None,
@@ -438,14 +447,14 @@ historical_controls = ui.div(
     ),
     ui.card(
         ui.card_header("Display Options"),
-        ui.strong("MODEL SELECTION"),
+        ui.div(ui.strong("MODEL SELECTION")),
         ui.input_checkbox_group(
             "hist_models",
             None,
             choices=MODELS,
             selected=["Combined model"],
         ),
-        ui.strong("FLASH ESTIMATE USED"),
+        ui.div(ui.strong("FLASH ESTIMATE USED"), _info_icon(_FLASH_ESTIMATE), style="display:inline-flex;align-items:center;"),
         ui.input_select(
             "flash_month",
             None,
@@ -455,21 +464,66 @@ historical_controls = ui.div(
         id="card_hist_display",
     ),
     ui.card(
-        ui.card_header("Evaluation Metrics"),
+        ui.card_header(ui.span("Evaluation Metrics")),
         ui.output_ui("eval_metrics"),
         id="card_eval",
     ),
 )
+
+_TOOLTIP_CSS = """
+.tt-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.tt-icon {
+    cursor: default;
+    font-size: 0.8rem;
+    color: #6c757d;
+    line-height: 1;
+    user-select: none;
+}
+.tt-box {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: #2b2f35;
+    color: #e9ecef;
+    padding: 0.55rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: normal;
+    min-width: 180px;
+    max-width: 260px;
+    white-space: normal;
+    line-height: 1.45;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.18s ease, visibility 0.18s ease;
+    z-index: 1200;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+}
+.tt-wrap:hover .tt-box {
+    opacity: 1;
+    visibility: visible;
+}
+"""
 
 app_ui = ui.page_fluid(
     ui.tags.link(
         rel="stylesheet",
         href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,100..900;1,100..900&display=swap",
     ),
+    ui.tags.style(_TOOLTIP_CSS),
     ui.output_ui("theme_css"),
     ui.output_ui("wizard_ui"),
     ui.output_ui("dm_overlay"),
     ui.div(
+        ui.img(src="blue_logo.png", style="width: 60px;"),
         ui.h1("US GDP Nowcast", style="margin: 0;"),
         ui.div(
             ui.output_ui("dark_mode_btn"),
