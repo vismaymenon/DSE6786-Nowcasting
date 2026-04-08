@@ -1,9 +1,12 @@
 """
 rf_feature_importance.py
 ========================
-Generates Random Forest feature importance bar plots for the latest quarter
-prediction, replicating the nowcast_single_latest() training window from
-pipeline/prediction.py.
+Generates Random Forest feature importance bar plots and LASSO coefficient
+bar plots for the latest quarter prediction, replicating the
+nowcast_single_latest() training window from pipeline/prediction.py.
+
+RF models:    RF_Lags_Average (X2), RF_Lags_UMIDAS (X4)
+LASSO models: LASSO_Average (X1), LASSO_Lags_Average (X2), LASSO_UMIDAS (X3)
 
 Usage:
     python rf_feature_importance.py
@@ -12,13 +15,14 @@ Usage:
 import os
 import pandas as pd
 import numpy as np
+import hdmpy as hd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor
 
 from database.client import get_backend_client
-from pipeline.output_x import load_filled_data, build_X2, build_X4
+from pipeline.output_x import load_filled_data, build_X1, build_X2, build_X3, build_X4
 
 # ── RF hyperparameters (must match pipeline/models/rf.py) ────────────────────
 N_ESTIMATORS = 1000
@@ -194,7 +198,7 @@ def plot_feature_importance(rf, feature_names: list, target_idx, model_name: str
 
 def generate_rf_importance_plots():
     """
-    Main entry point. Loads data, trains RF models for the latest quarter,
+    Loads data, trains RF models for the latest quarter,
     and saves feature importance plots.
     """
     print("Loading filled data …")
@@ -220,8 +224,161 @@ def generate_rf_importance_plots():
         )
         plot_feature_importance(rf, feature_names, target_idx, model_name)
 
-    print("\nDone.")
+
+def train_lasso_for_latest_quarter(X: pd.DataFrame, y: pd.Series, gdp: pd.DataFrame, model_name: str):
+    """
+    Replicates the nowcast_single_latest() training window for the latest
+    quarter (gdp.index[-1]), runs hdmpy.rlasso, and returns the
+    non-zero coefficients with their feature names.
+
+    Parameters
+    ----------
+    X : pd.DataFrame   — full feature matrix (all quarters)
+    y : pd.Series      — GDP growth series aligned to X
+    gdp : pd.DataFrame — GDP DataFrame (index = quarter dates)
+    model_name : str   — used for the NaN-fill Supabase lookup
+
+    Returns
+    -------
+    coef_series : pd.Series  — non-zero coefficients, sorted by absolute value
+    target_idx  : the latest quarter label
+    """
+    target_idx = gdp.index[-1]
+    prev_idx = gdp.index[-2]
+
+    # Fill previous quarter if NaN (same as nowcast_single_latest)
+    y_filled = _fill_prev_quarter(y, prev_idx, model_name)
+
+    # Construct the same rolling window used by nowcast_single_latest
+    target_pos = X.index.get_loc(target_idx)
+    window_start = target_pos - TRAIN_SIZE
+    X_window = X.iloc[window_start : target_pos + 1]
+    y_window = y_filled.iloc[window_start : target_pos + 1]
+
+    # Train on all but last row (last = test point, same as fit_lasso)
+    X_train = X_window.iloc[:-1].copy()
+    y_train = y_window.iloc[:-1].copy()
+
+    # Mirror fit_lasso() cleaning steps
+    col_std = X_train.std()
+    zero_var_cols = col_std[col_std == 0].index.tolist()
+    if zero_var_cols:
+        print(f"  Dropping zero-variance columns: {zero_var_cols}")
+        X_train = X_train.drop(columns=zero_var_cols)
+
+    nan_counts = X_train.isna().sum()
+    mostly_nan_cols = nan_counts[nan_counts > 0.9 * len(X_train)].index.tolist()
+    if mostly_nan_cols:
+        print(f"  Dropping mostly-NaN columns: {mostly_nan_cols}")
+        X_train = X_train.drop(columns=mostly_nan_cols)
+
+    mask_valid_rows = X_train.notna().all(axis=1)
+    if not mask_valid_rows.all():
+        print(f"  Dropping {(~mask_valid_rows).sum()} training rows with NaNs")
+        X_train = X_train[mask_valid_rows]
+        y_train = y_train[mask_valid_rows]
+
+    if X_train.empty:
+        raise ValueError(f"No non-NaN rows/columns left in X_train for {model_name}.")
+
+    model = hd.rlasso(X_train, y_train.values, post=True, homoskedastic=False)
+    coefs = np.nan_to_num(np.array(model.est["coefficients"]).flatten())
+    coefs = coefs[1:]  # drop intercept
+
+    coef_series = pd.Series(coefs, index=X_train.columns)
+    coef_series = coef_series[coef_series != 0].sort_values(key=np.abs, ascending=False)
+
+    return coef_series, target_idx
+
+
+def plot_lasso_coefficients(coef_series: pd.Series, target_idx, model_name: str):
+    """
+    Print and save a horizontal bar plot of the LASSO non-zero coefficients,
+    sorted by absolute value (largest at top).
+
+    Parameters
+    ----------
+    coef_series : pd.Series — non-zero LASSO coefficients
+    target_idx  : quarter label (used in plot title)
+    model_name  : str
+    """
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+
+    quarter_label = pd.Period(target_idx, freq="Q")
+
+    # Print to stdout
+    print(f"\nNon-zero LASSO coefficients — {model_name} (Latest Quarter: {quarter_label}):")
+    if coef_series.empty:
+        print("  (all coefficients are zero)")
+    else:
+        for rank, (name, coef) in enumerate(coef_series.items(), start=1):
+            print(f"  {rank:>2}. {name:<50s}  {coef:+.6f}")
+
+    if coef_series.empty:
+        print("  Skipping plot — no non-zero coefficients.")
+        return
+
+    # Reverse for horizontal bar (largest at top)
+    plot_series = coef_series.iloc[::-1]
+    colors = ["steelblue" if v > 0 else "tomato" for v in plot_series]
+
+    fig, ax = plt.subplots(figsize=(10, max(6, len(plot_series) * 0.35)))
+    bars = ax.barh(range(len(plot_series)), plot_series.values, align="center", color=colors)
+    ax.set_yticks(range(len(plot_series)))
+    ax.set_yticklabels(plot_series.index, fontsize=9)
+    ax.axvline(0, color="black", linewidth=0.8, linestyle="--")
+    ax.set_xlabel("LASSO Coefficient")
+    ax.set_title(f"LASSO Coefficients — {model_name}\n(Latest Quarter: {quarter_label})")
+    ax.bar_label(bars, fmt="%.4f", padding=3, fontsize=7)
+    plt.tight_layout()
+
+    filename = f"lasso_coefficients_{model_name}.png"
+    filepath = os.path.join(PLOTS_DIR, filename)
+    plt.savefig(filepath, dpi=150)
+    plt.close(fig)
+    print(f"  Plot saved to: {filepath}")
+
+
+def generate_lasso_coefficient_plots():
+    """
+    Loads data, fits LASSO models for the latest quarter,
+    and saves coefficient bar plots.
+    """
+    print("Loading filled data …")
+    df_md, df_qd = load_filled_data()
+
+    print("\nBuilding feature matrices …")
+    X1, y1 = build_X1(df_md, df_qd)
+    X2, y2 = build_X2(df_md, df_qd, n_lags=4)
+    X3, y3 = build_X3(df_md, df_qd)
+
+    print("\nFetching GDP from Supabase …")
+    gdp = _load_gdp()
+
+    models = [
+        ("LASSO_Average",      X1, y1),
+        ("LASSO_Lags_Average", X2, y2),
+        ("LASSO_UMIDAS",       X3, y3),
+    ]
+
+    for model_name, X, y in models:
+        print(f"\n{'='*60}")
+        print(f"Fitting {model_name} for latest quarter …")
+        coef_series, target_idx = train_lasso_for_latest_quarter(
+            X, y, gdp, model_name
+        )
+        plot_lasso_coefficients(coef_series, target_idx, model_name)
 
 
 if __name__ == "__main__":
+    print("=" * 60)
+    print("RF Feature Importance")
+    print("=" * 60)
     generate_rf_importance_plots()
+
+    print("\n" + "=" * 60)
+    print("LASSO Coefficients")
+    print("=" * 60)
+    generate_lasso_coefficient_plots()
+
+    print("\nDone.")
