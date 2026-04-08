@@ -91,13 +91,11 @@ def _load_gdp_with_flash() -> pd.Series:
 
     supabase = get_backend_client()
     for date in missing:
-        quarter_end = (date + pd.offsets.QuarterEnd(0)).date().isoformat()
         resp = (supabase.table("model_forecasts")
                 .select("nowcast")
-                .eq("model_name", "Ensemble")
-                .eq("quarter_date", quarter_end)
-                .order("run_date", desc=True)
-                .limit(1)
+                .eq("model_name", "All_Model_Average")
+                .eq("quarter_date", date.strftime("%Y-%m-%d"))
+                .order("month_date", desc=True)
                 .execute())
         if resp.data:
             flash_val = float(resp.data[0]["nowcast"])

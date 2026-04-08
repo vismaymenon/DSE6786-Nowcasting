@@ -11,3 +11,4 @@ scipy>=1.10
 fredapi>=0.4
 python-dotenv>=0.19
 supabase>=2.0
+hdmpy >=0.1.0

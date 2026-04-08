@@ -7,7 +7,7 @@ def fit_lasso(df_X: pd.DataFrame, gdp: pd.Series) -> dict:
     X_train = df_X.iloc[:-1].copy()
     y_train = gdp.iloc[:-1].copy()
     X_test  = df_X.iloc[[-1]].copy()
-    y_test_actual = float(gdp.iloc[-1, 0])
+    y_test_actual = float(gdp.iloc[-1])
 
     # 1) Drop zero-variance columns
     col_std = X_train.std()
@@ -38,7 +38,7 @@ def fit_lasso(df_X: pd.DataFrame, gdp: pd.Series) -> dict:
     # 4) Fit LASSO via hdmpy (no NaNs allowed)
     y_train_arr = y_train.values
 
-    model = hd.rlasso(X_train, y_train, post=True, homoskedastic=False)
+    model = hd.rlasso(X_train, y_train_arr, post=True, homoskedastic=False)
     coefs = np.nan_to_num(np.array(model.est["coefficients"]).flatten())
     coefs = coefs[1:]  # drop intercept
     intercept = float(np.array(model.est["intercept"]).flat[0])
