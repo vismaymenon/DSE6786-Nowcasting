@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from database.client import get_backend_client
 from pipeline.load_data import save_df
 from statsmodels.tsa.stattools import adfuller
+import statsmodels.api as sm
+# import matplotlib.pyplot as plt
 
 load_dotenv()
 
@@ -91,7 +93,7 @@ def dm_test(
     y_actual: np.ndarray,
     y_hat1: np.ndarray,
     y_hat2: np.ndarray,
-    loss: str = "squared",
+    loss: str = "absolute",
     h: int = 1,
     power: float = 2.0,
     bandwidth: str = "auto",
@@ -182,7 +184,6 @@ def dm_test(
     d_bar = d.mean()
     
     result = adfuller(d)
-    # Covariance Stationarity Check
     print(f'ADF Statistic: {result[0]}')
     print(f'ADF p-value: {result[1]}')
 
@@ -191,28 +192,14 @@ def dm_test(
         # P^(1/3) rule — data-driven, consistent with the slide
         n_lags = int(np.floor(n ** (1 / 3)))
     else:
-        # h-1 rule — theoretically grounded for h-step-ahead forecasts
-        n_lags = h - 1
+        # Fixed lags for test sample of ~100
+        n_lags = 4
 
-    # ── HAC variance (Newey-West, Bartlett kernel) ────────────────────────────
-    gamma_0 = np.var(d, ddof=0)
-    hac_var  = gamma_0
+    # Regression on constant with HAC standard error following Newey-West implentation in lecture
 
-    for k in range(1, n_lags + 1):
-        gamma_k = np.cov(d[k:], d[:-k], ddof=0)[0, 1]
-        weight   = 1.0 - k / (n_lags + 1)    # Bartlett kernel
-        hac_var += 2.0 * weight * gamma_k
-
-    # Variance of the sample mean d̄
-    var_d_bar = hac_var / n
-
-    if var_d_bar <= 0:
-        raise RuntimeError(
-            "Estimated variance of the loss differential is non-positive. "
-            "Check for degenerate or constant forecast errors."
-        )
-
-    dm_stat = d_bar / np.sqrt(var_d_bar)
+    X = np.ones(n) 
+    results = sm.OLS(d, X).fit(cov_type='HAC', cov_kwds={'maxlags': n_lags, 'use_correction': True})
+    dm_stat = results.tvalues[0]
 
     # ── Harvey-Leybourne-Newbold (1998) small-sample correction ──────────────
     print(n) # sanity check for n
