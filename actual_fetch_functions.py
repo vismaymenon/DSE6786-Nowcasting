@@ -142,7 +142,7 @@ def fetch_historical_data(start_date, end_date) -> tuple[list[str], list[float],
 
 ######## Function 5: Fetch Evaluation Metrics (RMSE) ########
 ## The following function fetches RMSE values for a single mode ##
-def fetch_evaluation_metrics(model: str, version: int) -> dict:
+def fetch_rmse(model: str, version: int) -> dict:
     
     # Step 1: Query Supabase for all rows matching requested models
     result = supabase.table("rmse") \
