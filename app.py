@@ -362,7 +362,7 @@ def _close_btn(t: dict):
 def _centered_modal(header: str, body: str | None, step: int, t: dict, show_logo: bool = False):
     content = []
     if show_logo:
-        content.append(ui.img(src="blue_logo.png", style="width: 60px; display: block; margin-bottom: 1rem;"))
+        content.append(ui.img(src="blue_wordmark.png", style="height: 48px; display: block; margin-bottom: 1rem;"))
     content.append(ui.h3(header, style="margin-bottom: 1rem;"))
     if body:
         content.append(ui.p(body))
@@ -549,13 +549,14 @@ app_ui = ui.page_fluid(
     ui.output_ui("dm_overlay"),
     ui.output_ui("models_overlay"),
     ui.div(
+        ui.output_ui("logo_img"),
         ui.h1("US GDP Nowcast", style="margin: 0;"),
         ui.div(
             ui.output_ui("dark_mode_btn"),
             ui.input_action_button("wizard_replay", "Play tutorial", style="margin-left: 1rem;"),
             style="margin-left: auto; display: flex; align-items: center;",
         ),
-        style="display: flex; align-items: center; margin-bottom: 1rem;",
+        style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;",
     ),
     ui.navset_tab(
         ui.nav_panel(
@@ -681,54 +682,54 @@ def server(input, output, session):
             return _centered_modal("US GDP Nowcast", None, step, t, show_logo=True)
         if step == 2:
             return _centered_modal(
-                "About Nowcasting", _ABOUT_NOWCASTING, step)
+                "About Nowcasting", _ABOUT_NOWCASTING, step, t)
         if step == 3:
             return _spotlight(
                 "#card_quarter",
                 "right: 36%; top: 20%;",
-                _QUARTER_SELECTION, step,
+                _QUARTER_SELECTION, step, t,
             )
         if step == 4:
             return _spotlight(
                 "#card_nowcast_model",
                 "right: 36%; top: 37%;",
-                _MODEL_SELECTION, step,
+                _MODEL_SELECTION, step, t,
             )
         if step == 5:
             return _spotlight(
                 "#card_ci",
                 "right: 36%; top: 56%;",
-                _CONFIDENCE_INTERVAL, step,
+                _CONFIDENCE_INTERVAL, step, t,
             )
         if step == 6:
             return _spotlight(
                 ".nav-tabs li:nth-child(2) .nav-link",
                 "left: 35%; top: 7%;",
-                _HISTORICAL_DATA, step,
+                _HISTORICAL_DATA, step, t,
             )
         if step == 7:
             return _spotlight(
                 "#card_date_range",
                 "right: 36%; top: 22%;",
-                _DATE_RANGE_SELECTION, step,
+                _DATE_RANGE_SELECTION, step, t,
             )
         if step == 8:
             return _spotlight(
                 "#card_hist_display",
                 "right: 36%; top: 38%;",
-                _MODEL_SELECTION, step,
+                _MODEL_SELECTION, step, t,
             )
         if step == 9:
             return _spotlight(
                 "#card_hist_display",
                 "right: 36%; top: 54%;",
-                _FLASH_ESTIMATE, step,
+                _FLASH_ESTIMATE, step, t,
             )
         if step == 10:
             return _spotlight(
                 "#card_eval",
                 "right: 36%; top: 68%;",
-                _EVALUATION_METRICS, step,
+                _EVALUATION_METRICS, step, t,
             )
         return ui.div()
 
