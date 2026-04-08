@@ -308,7 +308,7 @@ def prediction_pipeline(run_date=None):
     X4, y4 = build_X4(df_md, df_qd, n_monthly_lags=4, n_qd_lags=4)
 
     global MODEL_REGISTRY
-    MODEL_REGISTRY: dict[str, dict] = {
+    MODEL_REGISTRY = {
         "AR_Benchmark": {
             "model": ar_model_nowcast,
             "X": X_ar,
