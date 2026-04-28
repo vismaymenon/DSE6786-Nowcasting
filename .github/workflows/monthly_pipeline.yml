@@ -2,11 +2,9 @@ name: Monthly Nowcast Pipeline
 
 on:
   schedule:
-    - cron: '0 00 28-31 * *'  # Runs at 2am UTC on days 28–31
+    - cron: '0 00 28-31 * *'  # Runs at 12 am UTC on days 28–31
   workflow_dispatch:           # Allows manual trigger from GitHub UI
-  push:                    # temporary — remove after testing
-    branches:
-      - vismay-piper
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
